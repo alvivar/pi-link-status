@@ -78,6 +78,19 @@ Formatos (idénticos al CLI/README):
 
 ## Diseño
 
+### Enmienda v1 aprobada durante T1a
+
+El usuario decidió: «No importa para esta primera versión que quite el foco. No hay
+problema. Aprecio las soluciones con menos código y menos complejidad. [...] Continua.»
+Se adopta el camino simple discutido: **ventana centrada con show/hide normal**, tanto
+para consulta manual como para alerta automática. Se retiran los requisitos de no
+activación y anclaje al tray; no se implementa el puente nativo propuesto ni un workaround
+de transparencia. La activación puede interrumpir el editor y se acepta para v1.
+El aviso automático/persistente, click para ocultar, silencio, debounce y reglas de
+miembros no cambian. T6 conserva solo instancia única y arranque realmente oculto.
+El informe T1a conserva los hallazgos del contrato anterior como evidencia histórica;
+no activación y geometría avanzada ya no son gates del producto v1.
+
 ### Estado agregado del fleet (`FleetState`)
 
 | Valor | Regla | Icono |
@@ -127,10 +140,10 @@ mostrando el estado actual si los agentes vuelven a trabajar antes de que el usu
   sigue funcionando pero el disparo no abre la ventana. Sigue actualizando «última vez idle».
   Mostrar **«Alertas silenciadas»** en la ventana mientras esté activo; la consulta
   manual sigue disponible. Desactivar silencio no reproduce avisos suprimidos.
-- **Presentación:** la ventana de estado aparece sola anclada junto al icono del tray y
-  **permanece sin robar el foco** a la aplicación en uso hasta que el usuario la oculte
-  (§Ventana). Verificar esta capacidad en los plugins; no asumirla. Caso de uso: el usuario se va,
-  los agentes trabajan, al volver ve la ventana abierta con la tabla, la clickea y desaparece.
+- **Presentación:** la ventana de estado aparece sola centrada mediante el gestor de
+  ventanas y **permanece hasta que el usuario la oculte** (§Ventana). Puede tomar el foco:
+  aceptado explícitamente para v1. Caso de uso: el usuario se va, los agentes trabajan,
+  al volver ve la ventana abierta con la tabla, la clickea y desaparece.
   Sin auto-hide ni timers de ocultación (el tick de edades es independiente).
 - **Rastro persistente:** el icono queda verde y la cabecera de la ventana muestra siempre
   `Última vez todos idle: HH:mm` (hora local, de la sesión; `—` si nunca).
@@ -148,6 +161,8 @@ Es aditivo si se quiere después.
   `pi-link · sin hub` / `pi-link · hub antiguo (actualiza pi-link)`.
   Contar solo `thinking`/`tool:*`/`compacting` como trabajando; si hay desconocidos,
   indicarlos aparte (p. ej. `pi-link · 3 online · 1 trabajando · 1 desconocido`).
+  Linux no implementa tooltip: no invocar `setToolTip` allí. Mantener color, menú y ventana
+  según la degradación ya prevista en §Out of scope; no simular soporte inexistente.
 - Menú contextual (click derecho), **sin filas de terminales**: la ventana es la única
   vista detallada del estado.
   ```
@@ -174,22 +189,16 @@ Es aditivo si se quiere después.
   `'show'` y el handler es el toggle). Cerrar (WM_CLOSE / ⌘W) = ocultar. Salir solo desde
   el menú del tray. Pie discreto: **«Click para ocultar»**. El gesto renuncia a seleccionar
   texto; desplazar la lista con rueda o arrastre no debe contar como click para ocultar.
-- La apertura automática por alerta **no debe activar la ventana ni quitar el foco**
-  al editor/terminal en uso. La apertura manual puede activarla. Si los plugins no
-  ofrecen esta capacidad en alguna plataforma, reportar el bloqueo antes de introducir
-  dependencias o código nativo adicional; no degradar silenciosamente este requisito.
-- **Posición:** verificar las capacidades antes de la integración (§T1a). Si hay bounds
-  del tray y área útil del monitor que lo contiene, proponer una posición junto al icono
-  (margen ~8 px, arriba o abajo según el espacio) y limitar **ambos ejes** al área útil
-  de ese monitor, excluyendo barras del sistema. Las coordenadas negativas son válidas:
-  no limitar a `x ≥ 0` ni asumir que el monitor principal contiene el tray.
-  Bounds del icono, área útil y tamaño de ventana deben estar en el mismo sistema de
-  coordenadas/unidades; no multiplicar todo por el DPR de la ventana a ciegas en DPI mixto.
-  Si la ventana no cabe, reducir sus dimensiones al área disponible y mantener scroll.
-  Si faltan bounds (Linux) o datos de área útil, usar el centrado provisto por el gestor
-  solo si T1a confirma que mantiene la ventana accesible; documentar el fallback.
-  Si el stack no permite garantizar visibilidad, reportar BLOCKED: cualquier nueva
-  dependencia directa o cambio nativo necesita aprobación, aunque sea un paquete transitivo.
+- Apertura manual y automática usan **el mismo show normal** de `window_manager`:
+  se permite activar y tomar el foco. No llamar a blur para intentar restaurarlo.
+  Ocultar usa hide real; no opacity/click-through, ventanas invisibles WS_VISIBLE ni
+  estados paralelos para simular ocultación.
+- **Posición:** usar el centrado estándar de `window_manager`, sin consultar bounds del
+  tray, sin derivar áreas útiles moviendo la ventana y sin cálculos propios de DPI/monitores.
+  Verificar que la ventana queda visible en la configuración disponible. El centrado del
+  plugin tiene limitaciones conocidas en configuraciones DPI mixtas; v1 no promete
+  geometría multimonitor avanzada ni corrige esos internals. Registrar lo no verificado
+  y cualquier problema real encontrado, sin añadir automáticamente paquetes o código nativo.
 - Contenido: cabecera (`Toda la red pi-link`, `hub`, `N online`,
   `Última vez todos idle: HH:mm`, y `Alertas silenciadas` si aplica). Cuando todos
   están idle, mostrar el texto «Todos los agentes están idle»; no mantenerlo como
@@ -350,33 +359,28 @@ aislados en puertos efímeros salvo consentimiento explícito.
 - **Verify:** `ls assets/tray` muestra 8 ficheros; abrir un `.ico` con el visor de Windows
   y confirmar que tiene múltiples tamaños y transparencia (o `python -c "from PIL import Image; print(Image.open('assets/tray/idle.ico').info)"` si PIL está disponible; si no, inspección visual). Gate verde.
 
-### T1a — Viabilidad desktop antes de la integración (foco y monitores)
+### T1a — Informe de viabilidad desktop y decisión de simplificación
 
-- **Where:** APIs y código de las versiones resueltas de `tray_manager` y `window_manager`;
-  nuevo `docs/desktop-feasibility.md`. No modificar aún `lib/main.dart` ni los runners.
-- **Problem:** no construir la UI para descubrir al final que no puede mostrarse sin
-  activar o que queda fuera de pantalla. No asumir firmas ni disponibilidad por plataforma.
-- **Fix:** leer las APIs/implementaciones instaladas y probar un harness mínimo temporal
-  fuera del árbol de entrega, sin alterar el scaffold ni añadir dependencias permanentes.
-  Registrar en el documento: versiones probadas, APIs/archivos concretos, procedimiento,
-  resultados observados y limitaciones por plataforma. Preguntas a resolver:
-  1. ¿Cómo mostrar una ventana `alwaysOnTop` sin activarla? Probar en Windows mientras
-     se escribe en otro programa, desde ventana oculta y tras hide/show repetidos.
-  2. ¿Cómo obtener el área útil del monitor del tray, en qué unidades viene cada rect
-     y qué sucede con DPI mixto y monitores en coordenadas negativas?
-  3. ¿Qué centrado ofrece el gestor si no hay bounds? Confirmar que la ventana queda
-     accesible; si no se puede anclar con las dos dependencias, documentar esa limitación.
-  No importar directamente un paquete transitivo sin declararlo. Si hace falta otra
-  dependencia o código nativo, reportar BLOCKED con la alternativa mínima y esperar
-  aprobación/amendment del plan. Un workaround no se introduce por cuenta propia.
-- **Risk:** medium; tarea de viabilidad, no arquitectura adicional.
-- **Verify:** gate completo sobre el proyecto entregable. Evidencia de no robo de foco
-  en Windows obligatoria antes de T5. Probar layouts de monitores disponibles; los no
-  disponibles se declaran y se cubren posteriormente con tests de geometría, sin afirmar
-  que se han probado físicamente. Soporte macOS/Linux: distinguir fuente inspeccionada
-  de ejecución real. Resultado no concluyente en un requisito crítico → HOLD del usuario.
-- **Commit:** solo `docs/desktop-feasibility.md`; ningún harness temporal ni cambio de
-  producto. Review independiente valida la evidencia contra estos requisitos antes de avanzar.
+- **Where:** nuevo `docs/desktop-feasibility.md`; `PLAN.md` enmendado por el orquestador
+  con aprobación del usuario. No modificar aún producto, dependencias ni runners.
+- **Problem:** la investigación del contrato original encontró activación al mostrar
+  y limitaciones de geometría. El usuario priorizó show/hide sencillo; conservar evidencia
+  precisa sin convertir hipótesis o workarounds rechazados en código de producto.
+- **Fix:** finalizar el informe ya investigado: separar observado, leído en fuentes,
+  inferido y no ejecutado. Corregir los hallazgos de review sin nuevas pruebas de foco.
+  Documentar la decisión vigente de §Diseño/Enmienda: apertura normal centrada, foco
+  permitido; no puente nativo, no transparencia, no anclaje. Las limitaciones de no
+  activación siguen siendo hallazgos válidos del contrato anterior, no bloqueos actuales.
+  Registrar las capacidades ausentes de Linux: métodos no implementados pueden lanzar
+  `MissingPluginException`; T5 debe evitarlos explícitamente, no esperar null silencioso.
+  Los problemas DPI mixtos no se atribuyen a coordenadas negativas por sí solas.
+- **Risk:** medium; evidencia y precisión, no nueva arquitectura.
+- **Verify:** gate completo sobre el proyecto entregable. La review valida el informe
+  y la coherencia con la enmienda. No exigir prueba de un puente que no se implementará
+  ni repetir experimentos que roban foco. T5 verifica show/hide y centrado normales en
+  Windows; T6 verifica arranque oculto. macOS/Linux runtime quedan pendientes explícitos.
+- **Commit:** `docs/desktop-feasibility.md` y enmienda aprobada en `PLAN.md`; ningún
+  harness temporal ni producto. El committer recibe ambas rutas expresamente.
 
 ### T2 — Modelo `LinkStatus` + parseo + formatos + `FleetState` (puro, con tests)
 
@@ -501,15 +505,15 @@ aislados en puertos efímeros salvo consentimiento explícito.
 
 - **Where:** nuevos `lib/tray.dart`, `lib/status_window.dart`,
   `test/status_window_test.dart`; reescribir `lib/main.dart`.
-  Si la colocación necesita tests puros separados, añadir `test/window_position_test.dart`
-  y listar esa ruta en el callback. Sin cambios de dependencias fuera de una enmienda aprobada.
+  Sin módulo/tests de geometría propios: se usa el centrado del plugin.
+  Sin cambios de dependencias fuera de una enmienda aprobada.
 - **Problem:** unir T2–T4 con `tray_manager` y `window_manager` según §Diseño.
-- **Prerequisito:** T1a aprobado y `docs/desktop-feasibility.md` con la ruta verificada
-  para mostrar sin activar y posicionar dentro de pantalla. No diferir esa investigación a T5.
+- **Prerequisito:** informe T1a aprobado y §Diseño/Enmienda aplicado. Sus limitaciones
+  del contrato anterior no reintroducen no-activación ni anclaje en T5.
 - **Fix:** Antes de escribir, **lee la API instalada** en
   `%LOCALAPPDATA%\Pub\Cache\hosted\pub.dev\tray_manager-0.5.3\lib\` y
   `window_manager-0.5.2\lib\` (nombres exactos de `TrayListener`, `Menu`/`MenuItem`,
-  `getBounds`, `WindowOptions`, `waitUntilReadyToShow`, `setPreventClose`, `WindowListener`).
+  centrado/show/hide, `WindowOptions`, `waitUntilReadyToShow`, `setPreventClose`, `WindowListener`).
   El plan pinta invariantes, no firmas.
 
   **`tray.dart`** — `class Tray with TrayListener`:
@@ -527,6 +531,9 @@ aislados en puertos efímeros salvo consentimiento explícito.
     Las tres son callbacks `VoidCallback` inyectadas por constructor — el tray no conoce
     `windowManager` ni el poller.
   - Tooltip ≤ 127 chars: si el nombre del hub no cabe, no lo incluyas; el resumen numérico basta.
+  - Guardar las llamadas por plataforma: en Linux no llamar a `setToolTip`, `getBounds`
+    ni `popUpContextMenu`, que no están implementados y pueden lanzar MissingPluginException.
+    Allí el panel gestiona la apertura del menú; Mostrar/Ocultar queda disponible como item.
 
   **`status_window.dart`** — `class StatusView extends StatefulWidget` que recibe
   `ValueListenable<LinkStatus> status`, `ValueListenable<DateTime?> lastAllIdle`,
@@ -550,11 +557,10 @@ aislados en puertos efímeros salvo consentimiento explícito.
   - Por cada snapshot: pasar **el LinkStatus completo** a IdleAlert con la hora actual
     (la comparación de miembros vive allí, no duplicarla en App); actualizar la hora histórica
     y sincronizar el tray con status, silencio y visibilidad. Si IdleAlert devuelve que
-    corresponde alertar y la ventana está oculta, mostrarla automáticamente sin activar.
-  - `_show({bool automatic = false})`: posiciona según §Diseño/Ventana
-    (bounds/área útil y fallback verificados en T1a), muestra sin activar si `automatic`
-    usando la capacidad verificada del plugin; la apertura manual puede activar.
-    Actualizar `_visible = true`, reconstruir `StatusView` y re-`sync` del tray.
+    corresponde alertar y la ventana está oculta, mostrarla con la misma operación usada
+    para apertura manual; no necesita un parámetro `automatic`.
+  - `_show()`: centrar con el plugin y llamar al show normal. Se permite tomar el foco.
+    Actualizar visibilidad, reconstruir `StatusView` y re-sincronizar el tray.
     Si ya está visible, una alerta actualiza los datos sin volver a mostrar/activar la ventana.
   - `_hide()`: `windowManager.hide()`, actualizar `_visible = false`, reconstruir
     `StatusView` y re-`sync` del tray.
@@ -573,14 +579,11 @@ aislados en puertos efímeros salvo consentimiento explícito.
   1. `waitUntilReadyToShow` sin llamar a `show()` deja la ventana oculta en Windows una vez
      aplicado T6. Si el plugin necesita `hide()` explícito en el callback, añadirlo y anotarlo.
   2. `setPreventClose(true)` hace que `onWindowClose` se dispare y la ventana **no** se destruya.
-  3. Aplicar la conversión y el origen por monitor verificados en T1a: ventana íntegra
-     en el área útil, también con origen negativo y DPI mixto. No usar un DPR global
-     como solución automática. Una limitación nueva respecto a T1a → BLOCKED.
+  3. El centrado normal deja accesible la ventana en la configuración Windows probada;
+     no afirmar soporte DPI mixto/multimonitor no ejecutado. Sin consultas al rect del tray.
   4. `onTrayIconMouseDown` se dispara con click izquierdo en Windows sin `popUpContextMenu`.
-  5. Mostrar automáticamente con `alwaysOnTop` no activa la ventana ni roba el foco.
-     Leer la API/implementación instalada para identificar la opción correspondiente y
-     verificar escribiendo en otra aplicación. Si no está soportado, reportar BLOCKED
-     antes de ampliar alcance con código nativo o dependencias adicionales.
+  5. Mostrar/ocultar cambia la visibilidad nativa real. No simular hide con transparencia.
+     Tomar foco al mostrar está permitido, no requiere restaurarlo.
 - **Risk:** medium — es la tarea más grande y wirea dos plugins. El implementador entra con ventana compactada.
 - **Verify:** gate verde. Manual en Windows (`flutter run -d windows`), usando snapshots
   controlados o un hub de prueba aislado para las transiciones. No asumir que un nuevo
@@ -588,13 +591,13 @@ aislados en puertos efímeros salvo consentimiento explícito.
   1. Al arrancar: aparece icono gris en el tray, **ninguna ventana** (con T6 aplicado; sin T6 puede haber flash — anotar).
   2. Con un snapshot de un único terminal idle → icono verde al siguiente poll;
      tooltip `pi-link · 1 online · todos idle`. Sin alerta al arrancar ya idle.
-  3. Click izquierdo en el icono → ventana junto al tray con la fila del terminal y edad subiendo cada segundo. Click en otra aplicación → **sigue visible**. Click dentro de la ventana → se oculta. Click en el icono → aparece; click en el icono otra vez → se oculta.
+  3. Click izquierdo en el icono → ventana centrada con la fila del terminal y edad subiendo cada segundo. Click en otra aplicación → **sigue visible**. Click dentro de la ventana → se oculta. Click en el icono → aparece; click en el icono otra vez → se oculta.
   4. Click derecho → menú solo con Mostrar/Ocultar, Silenciar alertas y Salir, sin filas
      de terminales. Los cambios de estado/contexto no regeneran el menú.
   5. Con la ventana oculta, observar trabajo y luego dos muestras todos idle → la ventana
      aparece sola, dice «Todos los agentes están idle», registra la hora y **permanece**.
-     Seguir escribiendo en otra aplicación durante el aviso: el foco y el texto permanecen
-     allí. Probar también trabajo observado de menos de 60 s; no hay duración mínima.
+     Se acepta que al mostrar tome el foco; no hacer pruebas de escritura para exigir
+     lo contrario. Probar también trabajo observado de menos de 60 s; no hay duración mínima.
   6. Silenciar → abrir manualmente: aparece «Alertas silenciadas». Ocultar y repetir 5:
      icono cambia, ventana no aparece, la hora se actualiza al consultarla manualmente.
      Desactivar silencio estando todos idle no reproduce el aviso.
@@ -606,12 +609,11 @@ aislados en puertos efímeros salvo consentimiento explícito.
      el estado actual (no seguir afirmando todos idle); conservar la hora histórica.
   9. Salir → el proceso termina (comprobar en Task Manager).
   Añadir tests de widget para silencio visible, texto de alcance, lista con diez terminales,
-  ausencia de overflow, scroll sin cierre y click con cierre. Si hay cálculo de colocación
-  propio, probarlo como función pura con áreas útiles de origen negativo, borde derecho,
-  barra superior/inferior y área menor que el tamaño preferido. Ejecutar en los monitores
-  y escalas disponibles; registrar los casos solo simulados. Confirmar también con fixture
-  que una baja que deja el resto idle no abre alerta. Reportar literalmente las comprobaciones
-  manuales realizadas; las no verificables deben declararse, no presumirse.
+  ausencia de overflow, scroll sin cierre y click con cierre. No crear cálculos/tests
+  propios de colocación para compensar las limitaciones del plugin en esta v1.
+  Confirmar con fixture que una baja que deja el resto idle no abre alerta.
+  Reportar literalmente las comprobaciones manuales de show/hide y centrado realizadas;
+  los monitores/escalas/plataformas no probados se declaran, no se presumen.
 
 ### T6 — Runner Windows: instancia única + arranque oculto (**sensible, serializada**)
 
@@ -663,7 +665,7 @@ aislados en puertos efímeros salvo consentimiento explícito.
 | Pre | Baseline | low | implementador verifica Git + analyze + build; tests N/A solo si no existen; HOLD si rojo |
 | 0 | T0 baseline commit | none | committer, solo scaffold explícito, tras baseline aprobado |
 | 1 | T1 deps + iconos + tests de assets | low | desde aquí gate completo obligatorio |
-| 2 | T1a viabilidad de foco/monitores | medium | implementar prueba → review de evidencia → commit del informe; BLOCKED si no es viable |
+| 2 | T1a informe + decisión simplificada | medium | review de evidencia corregida/enmienda aprobada → commit; sin implementar puente |
 | 3 | T2 modelo + tests | low | puro; el reviewer comprueba el contrato |
 | 4 | T4 IdleAlert + miembros + tests | low | puro; bajas nunca se interpretan como fin del trabajo |
 | 5 | T3 Poller + tests de red | medium | deadline integral, cancelación y cierre |
@@ -689,6 +691,9 @@ Commit por tarea, mensajes en inglés, imperativo, prefijo convencional:
 
 ## Out of scope (v1) — no hacer
 
+- No-activación al mostrar, restauración de foco y anclaje junto al tray: retirados para
+  simplificar v1 por aprobación del usuario. Sin puente nativo de foco/geometría, fork,
+  opacity/click-through ni lógica multimonitor propia. Centrado y show/hide normales.
 - Notificaciones nativas del SO (`local_notifier`). Aditivo para v2 si se quiere rastro en el centro de notificaciones.
 - WebSocket / protocolo pi-link. La API HTTP `/status` es la estable y documentada.
 - Enviar mensajes, compactar, o cualquier acción sobre los terminales. Solo lectura.
