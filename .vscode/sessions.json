@@ -1,0 +1,74 @@
+{
+  "active": "default",
+  "activateOnStartup": false,
+  "keepExistingTerminals": false,
+  "noClear": true,
+  "sessions": {
+    "default": [
+      {
+        "name": "archon",
+        "icon": "organization",
+        "color": "terminal.ansiBrightWhite",
+        "focus": true,
+        "autoExecuteCommands": true,
+        "commands": [
+          "source C:/Users/andre/miniconda3/etc/profile.d/conda.sh && conda activate pi && pi-link archon@pi_link_status"
+        ]
+      },
+      {
+        "name": "fable",
+        "icon": "flame",
+        "color": "terminal.ansiBrightRed",
+        "autoExecuteCommands": true,
+        "commands": [
+          "source C:/Users/andre/miniconda3/etc/profile.d/conda.sh && conda activate pi && pi-link fable@pi_link_status"
+        ]
+      },
+      {
+        "name": "opus",
+        "icon": "sparkle",
+        "color": "terminal.ansiBrightMagenta",
+        "autoExecuteCommands": true,
+        "commands": [
+          "source C:/Users/andre/miniconda3/etc/profile.d/conda.sh && conda activate pi && pi-link opus@pi_link_status"
+        ]
+      },
+      {
+        "name": "sol",
+        "icon": "star-full",
+        "color": "terminal.ansiBrightYellow",
+        "autoExecuteCommands": true,
+        "commands": [
+          "source C:/Users/andre/miniconda3/etc/profile.d/conda.sh && conda activate pi && pi-link sol@pi_link_status"
+        ]
+      },
+      {
+        "name": "terra",
+        "icon": "globe",
+        "color": "terminal.ansiGreen",
+        "autoExecuteCommands": true,
+        "commands": [
+          "source C:/Users/andre/miniconda3/etc/profile.d/conda.sh && conda activate pi && pi-link terra@pi_link_status"
+        ]
+      },
+      {
+        "name": "committer",
+        "icon": "git-commit",
+        "color": "terminal.ansiYellow",
+        "autoExecuteCommands": true,
+        "commands": [
+          "source C:/Users/andre/miniconda3/etc/profile.d/conda.sh && conda activate pi && pi-link committer@pi_link_status"
+        ]
+      },
+      {
+        "name": "bash",
+        "icon": "terminal-bash",
+        "color": "terminal.ansiWhite",
+        "autoExecuteCommands": true,
+        "commands": [
+          "source C:/Users/andre/miniconda3/etc/profile.d/conda.sh && conda activate pi"
+        ]
+      }
+    ]
+  }
+}
