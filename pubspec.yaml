@@ -12,6 +12,14 @@ dependencies:
   tray_manager: ^0.5.3
   window_manager: ^0.5.2
 
+# tray_manager 0.5.3 leaves its two Windows NOTIFYICON* members uninitialized
+# and reads them before writing; there is no fixed release. third_party holds
+# the official 0.5.3 with that one correction — see its PATCHES.md. Deleting
+# this block goes back to the published package.
+dependency_overrides:
+  tray_manager:
+    path: third_party/tray_manager
+
 dev_dependencies:
   flutter_test:
     sdk: flutter

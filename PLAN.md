@@ -506,10 +506,56 @@ aislados en puertos efímeros salvo consentimiento explícito.
 - **Where:** nuevos `lib/tray.dart`, `lib/status_window.dart`,
   `test/status_window_test.dart`; reescribir `lib/main.dart`.
   Sin módulo/tests de geometría propios: se usa el centrado del plugin.
-  Sin cambios de dependencias fuera de una enmienda aprobada.
+  La enmienda de dependencia aprobada abajo amplía estas rutas de forma acotada.
 - **Problem:** unir T2–T4 con `tray_manager` y `window_manager` según §Diseño.
 - **Prerequisito:** informe T1a aprobado y §Diseño/Enmienda aplicado. Sus limitaciones
   del contrato anterior no reintroducen no-activación ni anclaje en T5.
+- **Enmienda aprobada durante la review de T5 — dependencia nativa:**
+  El usuario aprobó preparar una corrección mínima verificable de `tray_manager`
+  y ampliar el alcance, sin aceptar como limitación la memoria sin inicializar.
+  La investigación no encontró una versión publicada corregida: se conserva 0.5.3
+  y se incluye una copia local reproducible, con licencia MIT y procedencia verificadas.
+  No parchear el Pub Cache compartido ni cambiar el orden documentado
+  `setIcon` → `setToolTip` para ocultar el defecto. No publicar un fork/issue externo.
+  - Nuevos archivos, bajo `third_party/tray_manager/`:
+    `pubspec.yaml`, `LICENSE`, `README.md`, `README-ZH.md`, `CHANGELOG.md`,
+    `analysis_options.yaml`, `lib/tray_manager.dart`, `lib/src/tray_manager.dart`,
+    `lib/src/tray_listener.dart`, `lib/src/helpers/sandbox.dart`,
+    `windows/CMakeLists.txt`, `windows/tray_manager_plugin.cpp`,
+    `windows/include/tray_manager/tray_manager_plugin.h`,
+    `macos/tray_manager.podspec`, `macos/tray_manager/Package.swift`,
+    `macos/tray_manager/Classes/TrayManagerPlugin.swift`,
+    `macos/tray_manager/Classes/TrayIcon.swift`,
+    `macos/tray_manager/Classes/TrayMenu.swift`,
+    `linux/CMakeLists.txt`, `linux/tray_manager_plugin.cc`,
+    `linux/include/tray_manager/tray_manager_plugin.h` y `PATCHES.md`.
+  - Los 21 archivos de distribución proceden del archivo oficial 0.5.3, verificando
+    SHA-256 `1a659b08baa6e9b91ef8ce16eda37740de398be1c4cf322b8a1ddfef25c68c5a`.
+    Se omite `example/`; conservar los demás archivos seleccionados byte por byte,
+    salvo inicializar a cero los miembros nativos `nid` y `niif` del plugin Windows.
+    No añadir otros cambios nativos. `PATCHES.md` registra origen, hash, selección,
+    licencia, delta exacto y cómo retirar/actualizar la copia cuando upstream lo corrija.
+  - Modificar `pubspec.yaml` solo para un override local de `tray_manager` hacia
+    `third_party/tray_manager`, conservando la dependencia `^0.5.3`. Regenerar
+    `pubspec.lock` con pub, sin cambios de otras versiones ni versión de la app.
+    `analysis_options.yaml` raíz puede excluir `third_party/**` únicamente si el
+    análisis demuestra que es necesario; justificarlo y no silenciar código propio.
+    Registros de plugins y runners deben permanecer intactos; cambios inesperados
+    requieren disposición, no ampliación implícita.
+  - Verificar la diferencia contra el archivo oficial extraído: solo los dos
+    inicializadores, además de la selección documentada y `PATCHES.md`. Probar que
+    la resolución y la compilación Windows consumen la copia local. La licencia y
+    las plataformas macOS/Linux se conservan, pero sus builds/runtime siguen pendientes.
+    Un checkout incluye la corrección; no afirmar que todo el proyecto compila offline
+    sin disponer también de Flutter y las demás dependencias.
+  - La prueba principal del arreglo es la inicialización antes de la primera lectura,
+    el delta acotado y el build nativo. Una observación sin caracteres basura solo
+    corrobora; no prueba ausencia global de UB. Si UI Automation no permite leer la
+    etiqueta accesible, registrar ese límite separado del tooltip visible y solicitar
+    disposición si impide verificar un requisito crítico. No inventar prueba ejecutada.
+  - Incluir esta enmienda y la copia parcheada en el único commit T5 tras review; no
+    separar un commit de código inseguro ni mezclar T6. Desacuerdo sobre seguridad
+    del arreglo nativo se escala al usuario, no se cierra por desempate de preferencia.
 - **Fix:** Antes de escribir, **lee la API instalada** en
   `%LOCALAPPDATA%\Pub\Cache\hosted\pub.dev\tray_manager-0.5.3\lib\` y
   `window_manager-0.5.2\lib\` (nombres exactos de `TrayListener`, `Menu`/`MenuItem`,
