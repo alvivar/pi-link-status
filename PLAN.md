@@ -1,8 +1,13 @@
 # PLAN — pi_link_status (v1)
 
 App Flutter de escritorio que vive en el system tray y muestra el estado del fleet
-de terminales pi-link. Target principal **Windows 11**; macOS/Linux deben compilar
-y funcionar razonablemente sin trabajo extra.
+de terminales pi-link. Entrega v1 **Windows 11 únicamente**. macOS/Linux quedan
+fuera de esta entrega y no validados; conservar el código existente sin trabajo adicional.
+
+**Cierre aprobado después de T5:** completar T6, una comprobación final breve en
+Windows y `flutter build windows --release` para uso cotidiano. T7 queda pospuesta
+por decisión del usuario («no macos stuff»). Sin instalador, inicio automático,
+settings, dependencias nuevas ni nuevas campañas de casos límite.
 
 Filosofía obligatoria para todo el código: **simple, performante, legible,
 idiomático; cada línea justificada; abstracciones solo cuando son esenciales.**
@@ -148,8 +153,8 @@ mostrando el estado actual si los agentes vuelven a trabajar antes de que el usu
 - **Rastro persistente:** el icono queda verde y la cabecera de la ventana muestra siempre
   `Última vez todos idle: HH:mm` (hora local, de la sesión; `—` si nunca).
 
-Motivo de no usar notificaciones nativas del SO en v1: cero dependencias nuevas,
-comportamiento idéntico en las 3 plataformas, y la tabla completa aparece al instante.
+Motivo de no usar notificaciones nativas del SO en v1: cero dependencias nuevas
+y la tabla completa aparece al instante. No implica soporte multiplataforma validado.
 Es aditivo si se quiere después.
 
 ### Tray
@@ -262,8 +267,6 @@ docs/
   desktop-feasibility.md           resultados de la comprobación temprana T1a
 windows/runner/main.cpp            mutex de instancia única
 windows/runner/flutter_window.cpp  quitar Show() automático
-macos/Runner/Info.plist            LSUIElement
-macos/Runner/AppDelegate.swift     no terminar al cerrar última ventana
 ```
 
 ---
@@ -290,8 +293,11 @@ El implementador ejecuta y reporta los tres tras cada tarea, incluso T1a (docume
 con prueba de viabilidad). El build Windows sigue siendo obligatorio en tareas Dart.
 Cada **Verify** añade comprobaciones manuales; reportar evidencia y qué no se pudo
 verificar, sin equiparar análisis de fuente a prueba ejecutada. Una comprobación crítica
-no disponible requiere HOLD del usuario, no aprobación automática. Las pruebas macOS/Linux
-no ejecutables aquí se registran como pendientes; no se promete soporte validado.
+no disponible requiere HOLD del usuario, no aprobación automática. macOS/Linux quedan
+pospuestos fuera de esta entrega; no ejecutar T7 ni prometer soporte validado.
+Para el cierre T6 también es obligatorio `flutter build windows --release`.
+Entregar la ruta de la carpeta Release completa (EXE y archivos necesarios); los
+artefactos de `build/` no se commitean y no se crea un instalador.
 No detener ni alterar terminales/hub del usuario para probar: usar fixtures o servidores
 aislados en puertos efímeros salvo consentimiento explícito.
 
@@ -663,8 +669,11 @@ aislados en puertos efímeros salvo consentimiento explícito.
 
 ### T6 — Runner Windows: instancia única + arranque oculto (**sensible, serializada**)
 
-- **Where:** `windows/runner/main.cpp` (`wWinMain`, tras `CoInitializeEx`, ~línea 18);
-  `windows/runner/flutter_window.cpp` (`FlutterWindow::OnCreate`, callback `SetNextFrameCallback`, ~línea 31).
+- **Where:** solo `windows/runner/main.cpp` (`wWinMain`, inicialización);
+  `windows/runner/flutter_window.cpp` (`FlutterWindow::OnCreate`, callback `SetNextFrameCallback`).
+  Incluir en el commit la enmienda de cierre Windows de `PLAN.md`, propiedad del
+  orquestador. Sin cambios Dart, dependencias, vendor, registros generados ni macOS/Linux;
+  una necesidad real de ampliar rutas requiere disposición, no autorización implícita.
 - **Problem:** (a) dos copias del tray app = dos iconos; (b) el runner llama `this->Show()` al primer
   frame → flash de la ventana antes de que Dart pueda ocultarla.
 - **Fix:**
@@ -682,25 +691,27 @@ aislados en puertos efímeros salvo consentimiento explícito.
   y `windowManager.show()` posterior funciona. `SetQuitOnClose(true)` se mantiene (con
   `preventClose` en Dart el WM_CLOSE nunca llega a destruir).
 - **Risk:** medium/high — C++ nativo, verificación solo visual. Ventana compactada antes de empezar.
-- **Verify:** gate verde (la build es el compilador). Manual: `flutter run -d windows` 3 veces →
-  cero flash. Lanzar el `.exe` de `build\windows\x64\runner\Debug\` dos veces → un solo icono en
-  el tray, el segundo proceso no aparece en Task Manager. Cerrar por "Salir" y relanzar → arranca (mutex liberado).
+- **Verify:** `flutter analyze`, los 144 tests existentes, build Windows debug y
+  `flutter build windows --release` verdes. La compilación no demuestra comportamiento visual.
+  Comprobación final breve con el EXE Release de `build\windows\x64\runner\Release\`:
+  1. Tres arranques, cerrando con «Salir» entre ellos: ningún flash inicial; el icono aparece.
+  2. Con una copia abierta, lanzar otra: sigue un solo icono; el segundo proceso termina
+     sin ventana ni activación (puede existir transitoriamente mientras detecta el mutex).
+  3. «Salir» termina la primera copia y permite relanzar: mutex liberado.
+  4. Mostrar/ocultar, menú y tamaño fijo siguen funcionando; ventana visible y accesible
+     al mostrar. No repetir toda la investigación T5 ni añadir pruebas de geometría.
+  El usuario puede realizar los clicks y la observación visual. Sin input inyectado,
+  capturas globales, cambios en el fleet real ni cierre forzado de instancias del usuario.
+  Si una instancia bloquea la build, pedir cerrarla. Separar lectura de fuente, pruebas
+  simuladas y observación real: muestrear cada 200 ms no demuestra cero flash.
+  Si faltan estas comprobaciones críticas, HOLD del usuario antes del cierre.
 
-### T7 — macOS: agente sin Dock (no verificable en esta máquina)
+### T7 — macOS: POSPUESTA, no ejecutar en esta entrega
 
-- **Where:** `macos/Runner/Info.plist` (dentro del `<dict>` raíz); `macos/Runner/AppDelegate.swift:6-8`.
-- **Problem:** sin `LSUIElement` la app aparece en el Dock; y `applicationShouldTerminateAfterLastWindowClosed`
-  devuelve `true` → ocultar la ventana mataría la app.
-- **Fix:** añadir
-  ```xml
-  <key>LSUIElement</key>
-  <true/>
-  ```
-  y cambiar el `return true` a `return false` en `AppDelegate.swift`.
-- **Risk:** low (no compila aquí; cambios declarativos mínimos).
-- **Verify:** gate verde en Windows (no afectado). Inspección: el plist sigue siendo XML válido
-  (`python -c "import plistlib;plistlib.load(open('macos/Runner/Info.plist','rb'))"`). Marcar en el
-  ledger como **no verificado en macOS**.
+El usuario no dispone de un Mac y decidió cerrar Windows únicamente. La configuración
+sin Dock y el ciclo de vida macOS quedan para un trabajo futuro con validación real.
+No modificar `macos/Runner/Info.plist` ni `macos/Runner/AppDelegate.swift`.
+T7 se registra como omitida por decisión de alcance, no como fallo ni bloqueo de Windows.
 
 ---
 
@@ -716,8 +727,8 @@ aislados en puertos efímeros salvo consentimiento explícito.
 | 4 | T4 IdleAlert + miembros + tests | low | puro; bajas nunca se interpretan como fin del trabajo |
 | 5 | T3 Poller + tests de red | medium | deadline integral, cancelación y cierre |
 | 6 | T5 tray + ventana + main | medium | **compactar implementador antes**; T1a ya aprobado |
-| 7 | T6 runner Windows | medium/high | **sensible, serializada**; compactar antes; desacuerdos → usuario |
-| 8 | T7 macOS | low | declarativo; ejecución macOS pendiente |
+| 7 | T6 runner Windows + cierre | medium/high | **sensible, serializada**; compactar antes; debug/release + smoke final; desacuerdos → usuario |
+| — | T7 macOS | pospuesta | no ejecutar; fuera de la entrega Windows por decisión del usuario |
 
 Orden fijo, serial y con commit antes de la siguiente implementación. T5 puede verificar
 la interacción, pero el arranque zero-flash final se acepta en T6 con T5 ya integrado.
@@ -730,8 +741,9 @@ Commit por tarea, mensajes en inglés, imperativo, prefijo convencional:
 `docs: verify desktop focus and positioning feasibility` ·
 `feat: LinkStatus model, parsing and formats` · `feat: IdleAlert state machine` ·
 `feat: Poller for /status` · `feat: tray, status window and app wiring` ·
-`feat(windows): single instance and hidden launch` · `feat(macos): run as agent app`.
-`PLAN.md` se commitea al final del run (`docs: add v1 plan`), o se borra si el usuario prefiere.
+`feat(windows): single instance and hidden launch`.
+`PLAN.md` ya está versionado; su enmienda de cierre Windows acompaña el commit T6.
+No crear un commit macOS ni un commit vacío/adicional del plan.
 
 ---
 
