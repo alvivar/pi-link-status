@@ -60,6 +60,7 @@ void main() {
     bool muted = false,
     bool visible = true,
     DateTime Function()? clock,
+    TextScaler textScaler = TextScaler.noScaling,
   }) async {
     final statusNotifier = ValueNotifier<LinkStatus>(status);
     final idleNotifier = ValueNotifier<DateTime?>(lastAllIdle);
@@ -69,13 +70,20 @@ void main() {
     await tester.pumpWidget(
       MaterialApp(
         theme: ThemeData.dark(),
-        home: StatusView(
-          status: statusNotifier,
-          lastAllIdle: idleNotifier,
-          muted: muted,
-          visible: visible,
-          onTap: () => taps.add(null),
-          clock: clock ?? () => at,
+        home: Builder(
+          builder: (context) => MediaQuery(
+            // Only the text scale is overridden: the view still sees the real
+            // 420×320 window it was given.
+            data: MediaQuery.of(context).copyWith(textScaler: textScaler),
+            child: StatusView(
+              status: statusNotifier,
+              lastAllIdle: idleNotifier,
+              muted: muted,
+              visible: visible,
+              onTap: () => taps.add(null),
+              clock: clock ?? () => at,
+            ),
+          ),
         ),
       ),
     );
@@ -92,16 +100,20 @@ void main() {
         lastAllIdle: DateTime(2024, 5, 6, 9, 7),
       );
 
-      expect(find.text('Toda la red pi-link'), findsOneWidget);
-      expect(find.text('opus@pi-link · 1 online'), findsOneWidget);
-      expect(find.text('Última vez todos idle: 09:07'), findsOneWidget);
-      expect(find.text('Click para ocultar'), findsOneWidget);
+      expect(find.text('Entire pi-link network · 1 online'), findsOneWidget);
+      // The hub keeps its identity on its own row, not in the scope line.
+      expect(
+        find.textContaining('opus@pi-link  hub', findRichText: true),
+        findsOneWidget,
+      );
+      expect(find.text('Last all idle: 09:07'), findsOneWidget);
+      expect(find.text('Click to hide'), findsOneWidget);
     });
 
     testWidgets('shows a dash when it never happened', (tester) async {
       await pumpView(tester, status: const NoHub());
 
-      expect(find.text('Última vez todos idle: —'), findsOneWidget);
+      expect(find.text('Last all idle: —'), findsOneWidget);
     });
 
     testWidgets('announces the muted alerts only while muted', (tester) async {
@@ -110,10 +122,10 @@ void main() {
         status: online([terminal('opus@pi-link')]),
         muted: true,
       );
-      expect(find.text('Alertas silenciadas'), findsOneWidget);
+      expect(find.text('Alerts muted'), findsOneWidget);
 
       await pumpView(tester, status: online([terminal('opus@pi-link')]));
-      expect(find.text('Alertas silenciadas'), findsNothing);
+      expect(find.text('Alerts muted'), findsNothing);
     });
 
     testWidgets('all idle is a current state, not a memory', (tester) async {
@@ -122,7 +134,7 @@ void main() {
         status: online([terminal('opus@pi-link')]),
         lastAllIdle: DateTime(2024, 5, 6, 9, 7),
       );
-      expect(find.text('Todos los agentes están idle'), findsOneWidget);
+      expect(find.text('All agents are idle'), findsOneWidget);
 
       // Work resumes while the window is open: the claim goes, the history
       // stays.
@@ -131,9 +143,28 @@ void main() {
       ]);
       await tester.pump();
 
-      expect(find.text('Todos los agentes están idle'), findsNothing);
-      expect(find.text('thinking (2s)'), findsOneWidget);
-      expect(find.text('Última vez todos idle: 09:07'), findsOneWidget);
+      expect(find.text('All agents are idle'), findsNothing);
+      expect(find.text('1 working'), findsOneWidget);
+      expect(find.text('thinking 2s'), findsOneWidget);
+      expect(find.text('Last all idle: 09:07'), findsOneWidget);
+    });
+
+    testWidgets('the title counts every category exactly once', (tester) async {
+      await pumpView(
+        tester,
+        status: online([
+          terminal('a@pi-link', status: 'compacting', since: 8),
+          terminal('b@pi-link', status: 'tool:read', since: 4),
+          terminal('c@pi-link', status: 'waiting-approval', since: 14),
+          terminal('d@pi-link'),
+          terminal('e@pi-link'),
+        ]),
+      );
+
+      expect(
+        find.text('1 working · 1 compacting · 1 unknown · 2 idle'),
+        findsOneWidget,
+      );
     });
   });
 
@@ -148,10 +179,72 @@ void main() {
         ]),
       );
 
-      expect(find.text('opus@pi-link'), findsOneWidget);
-      expect(find.text('tool:link_send (12s)'), findsOneWidget);
+      expect(
+        find.textContaining('opus@pi-link', findRichText: true),
+        findsOneWidget,
+      );
+      expect(find.text('tool:link_send 12s'), findsOneWidget);
       expect(find.text('92K/272K (34%)'), findsOneWidget);
       expect(find.text('C:/code/pi_link_status'), findsOneWidget);
+    });
+
+    testWidgets(
+      'an unrecognised status keeps its age; an absent one has none',
+      (tester) async {
+        await pumpView(
+          tester,
+          status: online([
+            terminal('a@pi-link', status: 'waiting-approval', since: 14),
+            terminal('b@pi-link', status: null),
+          ]),
+        );
+
+        // status and sinceSeconds arrive together: a word this version does not
+        // know is still a word with an age behind it.
+        expect(find.text('waiting-approval 14s'), findsOneWidget);
+        expect(find.text('?'), findsOneWidget);
+      },
+    );
+
+    testWidgets('marks the hub, and only the hub', (tester) async {
+      await pumpView(
+        tester,
+        status: online([terminal('fable@pi-link'), terminal('sol@pi-link')]),
+      );
+
+      expect(
+        find.textContaining('fable@pi-link  hub', findRichText: true),
+        findsOneWidget,
+      );
+      expect(
+        find.textContaining('sol@pi-link  hub', findRichText: true),
+        findsNothing,
+      );
+      expect(
+        find.textContaining('sol@pi-link', findRichText: true),
+        findsOneWidget,
+        reason: 'the client keeps its full identity, just no marker',
+      );
+    });
+
+    testWidgets('a doubled text scale keeps every text', (tester) async {
+      await pumpView(
+        tester,
+        status: online([
+          terminal('opus@pi-link', status: 'tool:link_send', since: 12),
+        ]),
+        lastAllIdle: DateTime(2024, 5, 6, 9, 7),
+        muted: true,
+        textScaler: const TextScaler.linear(2.0),
+      );
+
+      expect(tester.takeException(), isNull);
+      expect(find.text('1 working'), findsOneWidget);
+      expect(find.text('tool:link_send 12s'), findsOneWidget);
+      expect(find.text('92K/272K (34%)'), findsOneWidget);
+      expect(find.text('Alerts muted'), findsOneWidget);
+      expect(find.text('Last all idle: 09:07'), findsOneWidget);
+      expect(find.text('Click to hide'), findsOneWidget);
     });
 
     testWidgets('unknown status, missing cwd and no context read as ?', (
@@ -184,11 +277,16 @@ void main() {
       await pumpView(tester, status: online(long));
 
       expect(tester.takeException(), isNull);
-      // Header and footer keep their place while the list scrolls.
-      expect(find.text('Toda la red pi-link'), findsOneWidget);
-      expect(find.text('Click para ocultar'), findsOneWidget);
+      // Header and footer keep their place while the list scrolls, under a
+      // scrollbar that says there is more.
+      expect(find.text('Entire pi-link network · 10 online'), findsOneWidget);
+      expect(find.text('Click to hide'), findsOneWidget);
+      expect(find.byType(RawScrollbar), findsOneWidget);
       expect(
-        find.text('very-long-terminal-name-number-9@pi-link-hub-machine'),
+        find.textContaining(
+          'very-long-terminal-name-number-9@',
+          findRichText: true,
+        ),
         findsNothing,
       );
 
@@ -197,10 +295,13 @@ void main() {
 
       expect(tester.takeException(), isNull);
       expect(
-        find.text('very-long-terminal-name-number-9@pi-link-hub-machine'),
+        find.textContaining(
+          'very-long-terminal-name-number-9@',
+          findRichText: true,
+        ),
         findsOneWidget,
       );
-      expect(find.text('Click para ocultar'), findsOneWidget);
+      expect(find.text('Click to hide'), findsOneWidget);
     });
   });
 
@@ -211,7 +312,10 @@ void main() {
         status: online(List.generate(10, (i) => terminal('terminal-$i@pi'))),
       );
 
-      expect(find.text('terminal-9@pi'), findsNothing);
+      expect(
+        find.textContaining('terminal-9@pi', findRichText: true),
+        findsNothing,
+      );
 
       // A wheel scroll over the list: it moves, and it is not a click.
       await tester.sendEventToBinding(
@@ -221,7 +325,11 @@ void main() {
         ),
       );
       await tester.pump();
-      expect(find.text('terminal-9@pi'), findsOneWidget, reason: 'scrolled');
+      expect(
+        find.textContaining('terminal-9@pi', findRichText: true),
+        findsOneWidget,
+        reason: 'scrolled',
+      );
       expect(view.taps, isEmpty, reason: 'scrolling is not a click');
 
       // A drag over the list.
@@ -232,7 +340,7 @@ void main() {
       // A click on the list, on the header, and on empty padding where no
       // child can answer: all three hide.
       await tester.tap(find.byType(ListView));
-      await tester.tap(find.text('Toda la red pi-link'));
+      await tester.tap(find.text('Entire pi-link network · 10 online'));
       await tester.tapAt(const Offset(415, 317));
       await tester.pump();
       expect(view.taps, hasLength(3));
@@ -247,15 +355,15 @@ void main() {
         status: online([terminal('opus@pi-link', since: 10)]),
         clock: () => now,
       );
-      expect(find.text('idle (10s)'), findsOneWidget);
+      expect(find.text('idle 10s'), findsOneWidget);
 
       now = at.add(const Duration(seconds: 1));
       await tester.pump(const Duration(seconds: 1));
-      expect(find.text('idle (11s)'), findsOneWidget);
+      expect(find.text('idle 11s'), findsOneWidget);
 
       now = at.add(const Duration(seconds: 2));
       await tester.pump(const Duration(seconds: 1));
-      expect(find.text('idle (12s)'), findsOneWidget);
+      expect(find.text('idle 12s'), findsOneWidget);
     });
 
     testWidgets('do not tick while hidden, and catch up when shown', (
@@ -287,16 +395,16 @@ void main() {
       now = at.add(const Duration(seconds: 30));
       // A pending periodic timer here would fail this test at teardown.
       await tester.pump(const Duration(seconds: 5));
-      expect(find.text('idle (10s)'), findsOneWidget);
+      expect(find.text('idle 10s'), findsOneWidget);
 
       await pumpVisible(true);
-      expect(find.text('idle (40s)'), findsOneWidget, reason: 'caught up');
+      expect(find.text('idle 40s'), findsOneWidget, reason: 'caught up');
 
       // Hiding again stops the tick, and the widget going away cancels it.
       await pumpVisible(false);
       now = at.add(const Duration(seconds: 90));
       await tester.pump(const Duration(seconds: 5));
-      expect(find.text('idle (40s)'), findsOneWidget);
+      expect(find.text('idle 40s'), findsOneWidget);
       await tester.pumpWidget(const SizedBox());
     });
   });
@@ -305,33 +413,48 @@ void main() {
     testWidgets('NoHub explains the promotion delay', (tester) async {
       await pumpView(tester, status: const NoHub());
 
-      expect(find.textContaining('No hay hub en :9900'), findsOneWidget);
+      expect(find.text('No hub on :9900'), findsOneWidget, reason: 'title');
+      expect(
+        find.text('Entire pi-link network · disconnected'),
+        findsOneWidget,
+      );
+      expect(find.textContaining('a client promotes itself'), findsOneWidget);
       expect(find.byType(ListView), findsNothing);
+      // The history and the way out stay put in every state.
+      expect(find.text('Last all idle: —'), findsOneWidget);
+      expect(find.text('Click to hide'), findsOneWidget);
     });
 
     testWidgets('Unsupported asks for an upgrade', (tester) async {
-      await pumpView(tester, status: const Unsupported());
+      await pumpView(
+        tester,
+        status: const Unsupported(),
+        lastAllIdle: DateTime(2024, 5, 6, 9, 7),
+      );
 
+      expect(find.text('Outdated hub · update pi-link'), findsOneWidget);
+      expect(find.text('Entire pi-link network · no /status'), findsOneWidget);
       expect(
-        find.textContaining('actualiza pi-link y reinicia los terminales'),
+        find.textContaining('update pi-link and restart the terminals'),
         findsOneWidget,
       );
+      expect(find.text('Last all idle: 09:07'), findsOneWidget);
     });
   });
 
   group('tray tooltip', () {
     test('says there is no hub, and that an old hub needs upgrading', () {
-      expect(tooltipFor(const NoHub()), 'pi-link · sin hub');
+      expect(tooltipFor(const NoHub()), 'pi-link · no hub');
       expect(
         tooltipFor(const Unsupported()),
-        'pi-link · hub antiguo (actualiza pi-link)',
+        'pi-link · outdated hub (update pi-link)',
       );
     });
 
     test('an idle fleet is called idle', () {
       expect(
         tooltipFor(online([terminal('opus@pi-link'), terminal('sol@pi-link')])),
-        'pi-link · 2 online · todos idle',
+        'pi-link · 2 online · all idle',
       );
     });
 
@@ -345,7 +468,7 @@ void main() {
             terminal('d@pi-link'),
           ]),
         ),
-        'pi-link · 4 online · 3 trabajando',
+        'pi-link · 4 online · 3 working',
       );
     });
 
@@ -359,7 +482,7 @@ void main() {
             terminal('d@pi-link'),
           ]),
         ),
-        'pi-link · 4 online · 1 trabajando · 2 desconocido',
+        'pi-link · 4 online · 1 working · 2 unknown',
       );
     });
 
@@ -376,7 +499,7 @@ void main() {
           ]),
         );
 
-        expect(tooltip, 'pi-link · 10 online · 5 trabajando');
+        expect(tooltip, 'pi-link · 10 online · 5 working');
         expect(tooltip.length, lessThanOrEqualTo(127));
         expect(tooltip, isNot(contains('\n')));
         // No name from the payload is interpolated: that is what bounds it.

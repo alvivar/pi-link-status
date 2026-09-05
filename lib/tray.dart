@@ -73,7 +73,7 @@ class Tray with TrayListener {
 
   /// Stops accepting clicks, immediately and idempotently. Unregistering is
   /// deferred one microtask on purpose: this is called *from* a tray callback
-  /// (the 'Salir' item), and tray_manager dispatches while iterating its
+  /// (the 'Quit' item), and tray_manager dispatches while iterating its
   /// ObserverList (tray_manager.dart:42), which a removal mid-loop would break.
   void deactivate() {
     if (!_active) return;
@@ -98,7 +98,7 @@ class Tray with TrayListener {
   @override
   void onTrayIconRightMouseDown() {
     // Not implemented on Linux, where AppIndicator opens the menu itself; the
-    // 'Mostrar' item is what keeps the window reachable there.
+    // 'Show' item is what keeps the window reachable there.
     if (!_active || Platform.isLinux) return;
     // Deliberately not serialized with [sync]: the menu must open at click
     // time, not behind a poll's icon update. It applies no app state — but its
@@ -142,14 +142,10 @@ class Tray with TrayListener {
   Menu _menuFor(bool muted, bool windowVisible) => Menu(
     items: [
       // The key stays 'show' in both states: it is a toggle, not two actions.
-      MenuItem(key: 'show', label: windowVisible ? 'Ocultar' : 'Mostrar'),
-      MenuItem.checkbox(
-        key: 'mute',
-        label: 'Silenciar alertas',
-        checked: muted,
-      ),
+      MenuItem(key: 'show', label: windowVisible ? 'Hide' : 'Show'),
+      MenuItem.checkbox(key: 'mute', label: 'Mute alerts', checked: muted),
       MenuItem.separator(),
-      MenuItem(key: 'quit', label: 'Salir'),
+      MenuItem(key: 'quit', label: 'Quit'),
     ],
   );
 }
@@ -161,8 +157,8 @@ class Tray with TrayListener {
 String tooltipFor(LinkStatus status) {
   if (status is! Online) {
     return status is Unsupported
-        ? 'pi-link · hub antiguo (actualiza pi-link)'
-        : 'pi-link · sin hub';
+        ? 'pi-link · outdated hub (update pi-link)'
+        : 'pi-link · no hub';
   }
   var working = 0;
   var unknown = 0;
@@ -179,8 +175,8 @@ String tooltipFor(LinkStatus status) {
     }
   }
   final summary = StringBuffer('pi-link · ${status.terminals.length} online');
-  if (working > 0) summary.write(' · $working trabajando');
-  if (unknown > 0) summary.write(' · $unknown desconocido');
-  if (working == 0 && unknown == 0) summary.write(' · todos idle');
+  if (working > 0) summary.write(' · $working working');
+  if (unknown > 0) summary.write(' · $unknown unknown');
+  if (working == 0 && unknown == 0) summary.write(' · all idle');
   return summary.toString();
 }

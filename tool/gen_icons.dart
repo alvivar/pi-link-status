@@ -8,7 +8,7 @@ import 'dart:io';
 
 import 'package:image/image.dart';
 
-/// Tray colors per fleet state (see PLAN.md, "Diseño / Tray").
+/// Tray colors per fleet state.
 const _colors = <String, int>{
   'offline': 0x9E9E9E,
   'idle': 0x43A047,
@@ -20,7 +20,8 @@ const _colors = <String, int>{
 const _icoSizes = [16, 20, 24, 32, 48, 64, 256];
 
 const _size = 256;
-const _radius = 112; // leaves a 16px margin, so the disc never touches the edge.
+const _radius =
+    112; // leaves a 16px margin, so the disc never touches the edge.
 
 void main() {
   final dir = Directory('assets/tray')..createSync(recursive: true);

@@ -274,7 +274,15 @@ class _AppState extends State<App> with WindowListener {
   Widget build(BuildContext context) => MaterialApp(
     title: 'pi-link status',
     debugShowCheckedModeBanner: false,
-    theme: ThemeData.dark(),
+    theme: ThemeData(
+      brightness: Brightness.dark,
+      // Segoe UI is the Windows interface font; the panel asks for nothing
+      // else, and its own styles inherit the family from here.
+      fontFamily: 'Segoe UI',
+      // The same graphite the panel paints, so nothing lighter can appear
+      // behind it for a frame.
+      scaffoldBackgroundColor: graphiteSurface,
+    ),
     home: StatusView(
       status: _poller.status,
       lastAllIdle: _lastAllIdle,
