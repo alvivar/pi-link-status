@@ -1,0 +1,256 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Graphite — static mockup of pi-link status (420×320 logical)</title>
+<style>
+  /*
+   * Self-contained HTML/CSS mockup. A visual approximation, NOT evidence of the
+   * Flutter runtime. Illustrative data. No dependencies, no network.
+   *
+   * Palette (final colors, no alpha, so contrast can be measured):
+   *   background   #1B1B1F
+   *   border       #34343A   (1 px)
+   *   hairline     #2A2A2F
+   *   primary      #F2EFEA   warm white (names)
+   *   secondary    #ACA9A4   metadata, @suffix, right rail, history
+   *   path         #9C9994
+   *   hint         #8F8C88   "Click to hide"
+   *   idle         #81C784 · working #64B5F6 · compacting #FFD54F
+   *   gray         #9E9E9E   offline / unknown
+   */
+  :root {
+    --bg: #1B1B1F;
+    --border: #34343A;
+    --hair: #2A2A2F;
+    --fg: #F2EFEA;
+    --meta: #ACA9A4;
+    --path: #9C9994;
+    --hint: #8F8C88;
+    --idle: #81C784;
+    --busy: #64B5F6;
+    --compact: #FFD54F;
+    --grey: #9E9E9E;
+    --thumb: #6B6B72;
+  }
+  html, body { margin: 0; background: #0E0E10; color: #C8C6C2; }
+  body {
+    font-family: "Segoe UI", system-ui, sans-serif;
+    padding: 24px;
+    display: flex; flex-wrap: wrap; gap: 32px; align-items: flex-start;
+  }
+  figure { margin: 0; }
+  figcaption { font-size: 12px; color: #8F8C88; margin: 0 0 8px 0; max-width: 420px; }
+
+  /* The window: 420×320 logical, box-sizing includes the 1 px border. */
+  .win {
+    box-sizing: border-box;
+    width: 420px; height: 320px;
+    background: var(--bg);
+    border: 1px solid var(--border);
+    border-left: 3px solid var(--edge, var(--grey)); /* fleet-state accent */
+    color: var(--fg);
+    font-family: "Segoe UI", system-ui, sans-serif;
+    font-size: 12px; line-height: 16px;
+    font-variant-numeric: tabular-nums;
+    display: flex; flex-direction: column;
+    padding: 10px 16px 8px 16px;
+    overflow: hidden;
+  }
+  .win.busy    { --edge: var(--busy); }
+  .win.idle    { --edge: var(--idle); }
+  .win.compact { --edge: var(--compact); }
+  .win.off     { --edge: var(--grey); }
+
+  /* Fixed header: the fleet state leads, the scope is secondary. */
+  .title {
+    font-size: 15px; line-height: 20px; font-weight: 600;
+    color: var(--edge, var(--fg));
+    letter-spacing: .1px;
+  }
+  .scope {
+    display: flex; flex-wrap: wrap; justify-content: space-between; gap: 2px 12px;
+    color: var(--meta); margin-top: 2px;
+  }
+  .mute { display: inline-flex; align-items: center; gap: 5px; white-space: nowrap; }
+  .mute svg { width: 12px; height: 12px; stroke: var(--meta); fill: none; stroke-width: 1.6; }
+  hr { border: 0; border-top: 1px solid var(--hair); margin: 6px 0 0 0; }
+
+  /* List: the only scrolling area; header and footer stay put. */
+  .list { position: relative; flex: 1; min-height: 0; overflow: hidden; padding-top: 6px; }
+  .rows { display: flex; flex-direction: column; gap: 7px; padding-right: 10px; }
+  .row { display: flex; flex-direction: column; gap: 1px; }
+  .l1, .l2 { display: flex; flex-wrap: wrap; align-items: baseline; column-gap: 12px; }
+  .l1 { font-size: 14px; line-height: 18px; }
+  .name { flex: 1 1 auto; min-width: 0; overflow-wrap: anywhere; font-weight: 600; padding-left: 15px; /* hanging indent: wrapped lines align under the text, not under the dot */ }
+  .name .at { font-weight: 400; color: var(--meta); font-size: 13px; }
+  .name .hub { font-weight: 400; color: var(--meta); font-size: 12px; letter-spacing: .04em; margin-left: 8px; }
+  .dot {
+    display: inline-block; width: 7px; height: 7px; border-radius: 50%;
+    margin: 0 8px 1px -15px; vertical-align: middle;
+    background: var(--c);
+  }
+  .dot.idle    { --c: var(--idle); }
+  .dot.busy    { --c: var(--busy); }
+  .dot.compact { --c: var(--compact); }
+  .dot.unknown { background: transparent; box-shadow: inset 0 0 0 1.5px var(--grey); }
+  .rail { margin-left: auto; color: var(--meta); white-space: nowrap; font-size: 12px; line-height: 18px; }
+  .rail .age { display: inline-block; min-width: 3ch; text-align: right; margin-left: 10px; }
+  .ctx .pct { display: inline-block; min-width: 5ch; text-align: right; margin-left: 10px; } /* "(33%)" = 5ch: aligns the tokens column */
+  .rail .age:empty, .ctx .pct:empty { display: none; } /* No percent (unknown tokens): nothing to align. The age is absent only when the status is absent (shown as "?"); an unknown status keeps its age. */
+  .path {
+    flex: 1 1 auto; min-width: 0; color: var(--path);
+    white-space: nowrap; overflow: hidden; text-overflow: ellipsis; /* as today: end ellipsis */
+    padding-left: 15px; /* aligns with the name, under the dot */
+  }
+  .ctx { margin-left: auto; color: var(--meta); white-space: nowrap; }
+
+  /* Overflow indicator: 3 px thumb on the right edge of the list. */
+  .thumb { position: absolute; right: 0; top: 6px; width: 3px; border-radius: 2px; background: var(--thumb); }
+
+  /* Fixed footer, wrappable. */
+  .foot {
+    display: flex; flex-wrap: wrap; justify-content: space-between; gap: 2px 12px;
+    padding-top: 6px; margin-top: 6px; border-top: 1px solid var(--hair);
+  }
+  .hist { color: var(--meta); }
+  .hint { color: var(--hint); }
+
+  .explain { color: var(--meta); padding-top: 6px; max-width: 360px; }
+</style>
+</head>
+<body>
+
+<!-- ===================== MAIN: 2 working · 4 idle ===================== -->
+<figure>
+  <figcaption>Main · the screenshot case: 6 online, 2 working, hub = fable. 5 full rows, the 6th peeks; scroll thumb.</figcaption>
+  <div class="win busy" id="main">
+    <div class="title">2 working · 4 idle</div>
+    <div class="scope"><span>Entire pi-link network · 6 online</span></div>
+    <hr>
+    <div class="list">
+      <div class="rows">
+        <div class="row">
+          <div class="l1"><span class="name"><i class="dot busy"></i>fable<span class="at">@pi_link_status</span><span class="hub">hub</span></span><span class="rail">thinking<span class="age">22s</span></span></div>
+          <div class="l2"><span class="path">C:\AERO\me\code\pi_link_status</span><span class="ctx">16K/1.0M<span class="pct">(2%)</span></span></div>
+        </div>
+        <div class="row">
+          <div class="l1"><span class="name"><i class="dot busy"></i>archon<span class="at">@pi_link_status</span></span><span class="rail">tool:bash<span class="age">32s</span></span></div>
+          <div class="l2"><span class="path">C:\AERO\me\code\pi_link_status</span><span class="ctx">91K/272K<span class="pct">(33%)</span></span></div>
+        </div>
+        <div class="row">
+          <div class="l1"><span class="name"><i class="dot idle"></i>committer<span class="at">@pi_link_status</span></span><span class="rail">idle<span class="age">1m</span></span></div>
+          <div class="l2"><span class="path">C:\AERO\me\code\pi_link_status</span><span class="ctx">84K/272K<span class="pct">(31%)</span></span></div>
+        </div>
+        <div class="row">
+          <div class="l1"><span class="name"><i class="dot idle"></i>opus<span class="at">@pi_link_status</span></span><span class="rail">idle<span class="age">3m</span></span></div>
+          <div class="l2"><span class="path">C:\AERO\me\code\pi_link_status</span><span class="ctx">79K/1.0M<span class="pct">(8%)</span></span></div>
+        </div>
+        <div class="row">
+          <div class="l1"><span class="name"><i class="dot idle"></i>sol<span class="at">@pi_link_status</span></span><span class="rail">idle<span class="age">3m</span></span></div>
+          <div class="l2"><span class="path">~\projects\other-project</span><span class="ctx">60K/272K<span class="pct">(22%)</span></span></div>
+        </div>
+        <div class="row">
+          <div class="l1"><span class="name"><i class="dot idle"></i>terra<span class="at">@aero_docs</span></span><span class="rail">idle<span class="age">2h</span></span></div>
+          <div class="l2"><span class="path">C:\AERO\me\docs</span><span class="ctx">12K/272K<span class="pct">(4%)</span></span></div>
+        </div>
+      </div>
+      <div class="thumb" style="height: 194px;"></div>
+    </div>
+    <div class="foot"><span class="hist">Last all idle: 15:50</span><span class="hint">Click to hide</span></div>
+  </div>
+</figure>
+
+<!-- ===================== ALL IDLE + MUTED ===================== -->
+<figure>
+  <figcaption>All idle + alerts muted · 3 online, no overflow (no thumb).</figcaption>
+  <div class="win idle">
+    <div class="title">All agents are idle</div>
+    <div class="scope"><span>Entire pi-link network · 3 online</span><span class="mute"><svg viewBox="0 0 24 24"><path d="M6 17V11a6 6 0 0 1 9.3-5"/><path d="M18 11v6"/><path d="M4 17h16"/><path d="M10 20a2 2 0 0 0 4 0"/><path d="M3 3l18 18"/></svg>Alerts muted</span></div>
+    <hr>
+    <div class="list">
+      <div class="rows">
+        <div class="row">
+          <div class="l1"><span class="name"><i class="dot idle"></i>fable<span class="at">@pi_link_status</span><span class="hub">hub</span></span><span class="rail">idle<span class="age">12m</span></span></div>
+          <div class="l2"><span class="path">C:\AERO\me\code\pi_link_status</span><span class="ctx">16K/1.0M<span class="pct">(2%)</span></span></div>
+        </div>
+        <div class="row">
+          <div class="l1"><span class="name"><i class="dot idle"></i>archon<span class="at">@pi_link_status</span></span><span class="rail">idle<span class="age">9m</span></span></div>
+          <div class="l2"><span class="path">C:\AERO\me\code\pi_link_status</span><span class="ctx">91K/272K<span class="pct">(33%)</span></span></div>
+        </div>
+        <div class="row">
+          <div class="l1"><span class="name"><i class="dot idle"></i>sol<span class="at">@pi_link_status</span></span><span class="rail">idle<span class="age">1h</span></span></div>
+          <div class="l2"><span class="path">C:\AERO\me\code\pi_link_status</span><span class="ctx">60K/272K<span class="pct">(22%)</span></span></div>
+        </div>
+      </div>
+    </div>
+    <div class="foot"><span class="hist">Last all idle: 16:04</span><span class="hint">Click to hide</span></div>
+  </div>
+</figure>
+
+<!-- ===================== UNKNOWN + COMPACTING + LONG NAME ===================== -->
+<figure>
+  <figcaption>Mixed: compacting (amber leads the fleet), unknown with raw status and hollow ring — it keeps its age —, long name/status that wrap without hiding anything.</figcaption>
+  <div class="win compact">
+    <div class="title">1 working · 1 compacting · 1 unknown · 2 idle</div>
+    <div class="scope"><span>Entire pi-link network · 5 online</span></div>
+    <hr>
+    <div class="list">
+      <div class="rows">
+        <div class="row">
+          <div class="l1"><span class="name"><i class="dot compact"></i>archon<span class="at">@pi_link_status</span><span class="hub">hub</span></span><span class="rail">compacting<span class="age">8s</span></span></div>
+          <div class="l2"><span class="path">C:\AERO\me\code\pi_link_status</span><span class="ctx">?/272K<span class="pct"></span></span></div>
+        </div>
+        <div class="row">
+          <div class="l1"><span class="name"><i class="dot unknown"></i>legacy-term</span><span class="rail">waiting-approval<span class="age">14s</span></span></div>
+          <div class="l2"><span class="path">?</span><span class="ctx">?<span class="pct"></span></span></div>
+        </div>
+        <div class="row">
+          <div class="l1"><span class="name"><i class="dot busy"></i>a-terminal-with-a-really-long-name<span class="at">@project-with-an-equally-long-name</span></span><span class="rail">tool:read_many_files<span class="age">1m</span></span></div>
+          <div class="l2"><span class="path">C:\Users\andre\Documents\clients\project-with-an-equally-long-name\src\backend</span><span class="ctx">204K/272K<span class="pct">(75%)</span></span></div>
+        </div>
+        <div class="row">
+          <div class="l1"><span class="name"><i class="dot idle"></i>sol<span class="at">@pi_link_status</span></span><span class="rail">idle<span class="age">4m</span></span></div>
+          <div class="l2"><span class="path">C:\AERO\me\code\pi_link_status</span><span class="ctx">60K/272K<span class="pct">(22%)</span></span></div>
+        </div>
+        <div class="row">
+          <div class="l1"><span class="name"><i class="dot idle"></i>terra<span class="at">@aero_docs</span></span><span class="rail">idle<span class="age">2h</span></span></div>
+          <div class="l2"><span class="path">C:\AERO\me\docs</span><span class="ctx">12K/272K<span class="pct">(4%)</span></span></div>
+        </div>
+      </div>
+      <div class="thumb" style="height: 175px;"></div>
+    </div>
+    <div class="foot"><span class="hist">Last all idle: 15:50</span><span class="hint">Click to hide</span></div>
+  </div>
+</figure>
+
+<!-- ===================== NO HUB ===================== -->
+<figure>
+  <figcaption>NoHub: no hub on :9900. History and hint remain.</figcaption>
+  <div class="win off">
+    <div class="title">No hub on :9900</div>
+    <div class="scope"><span>Entire pi-link network · disconnected</span></div>
+    <hr>
+    <div class="list">
+      <div class="explain">No hub on :9900. If you just closed the hub, a client promotes itself within 2–5 s.</div>
+    </div>
+    <div class="foot"><span class="hist">Last all idle: 15:50</span><span class="hint">Click to hide</span></div>
+  </div>
+</figure>
+
+<!-- ===================== OUTDATED HUB ===================== -->
+<figure>
+  <figcaption>Unsupported: the hub responds but does not support /status. Distinct from NoHub; muted indicator also visible.</figcaption>
+  <div class="win off">
+    <div class="title">Outdated hub · update pi-link</div>
+    <div class="scope"><span>Entire pi-link network · no /status</span><span class="mute"><svg viewBox="0 0 24 24"><path d="M6 17V11a6 6 0 0 1 9.3-5"/><path d="M18 11v6"/><path d="M4 17h16"/><path d="M10 20a2 2 0 0 0 4 0"/><path d="M3 3l18 18"/></svg>Alerts muted</span></div>
+    <hr>
+    <div class="list">
+      <div class="explain">The hub responds but does not support /status — update pi-link and restart the terminals.</div>
+    </div>
+    <div class="foot"><span class="hist">Last all idle: —</span><span class="hint">Click to hide</span></div>
+  </div>
+</figure>
+
+</body>
+</html>
