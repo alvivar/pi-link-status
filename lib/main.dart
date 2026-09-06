@@ -13,8 +13,9 @@ Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
   await windowManager.ensureInitialized();
   // No show() here: the window must not appear until asked for. The Windows
-  // runner still shows it on the first frame until T6 removes that call, which
-  // is why [_App] hides it once the first frame is out.
+  // runner creates it without WS_VISIBLE and no longer shows it on the first
+  // frame, so nothing on the native side has to be undone; [App] still hides
+  // once after that frame as a defensive step.
   await windowManager.waitUntilReadyToShow(
     const WindowOptions(
       size: _windowSize,
@@ -102,9 +103,10 @@ class _AppState extends State<App> with WindowListener {
         _poller.start();
       }
     });
-    // The runner shows the window on its first frame (until T6). Hiding after
-    // that frame is what makes "starts hidden" true today; it is a no-op once
-    // the runner stops showing it.
+    // Startup is already hidden: the runner creates the window without
+    // WS_VISIBLE and never shows it, and [_visible] starts false, so this hide
+    // is expected to change nothing. It stays as a cheap guard for the case
+    // where something else along the startup path puts the window on screen.
     WidgetsBinding.instance.addPostFrameCallback((_) {
       _enqueue('hiding the window at startup', () async {
         await windowManager.hide();
