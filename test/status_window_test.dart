@@ -1,6 +1,7 @@
 import 'dart:async';
 import 'dart:io';
 
+import 'package:flutter/foundation.dart';
 import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
@@ -691,16 +692,71 @@ void main() {
     /// Starts the app with a poller that never reaches the network. Startup is
     /// not expected to fail, so it reports to flutter_test like any other test
     /// code: an error here should be a red test, not collected evidence.
-    Future<void> pumpApp(WidgetTester tester) async {
+    ///
+    /// [poller] replaces it when the test needs to feed samples instead.
+    Future<void> pumpApp(WidgetTester tester, {Poller? poller}) async {
       await tester.pumpWidget(
         App(
-          poller: Poller(
-            openRequest: (client, uri) =>
-                Future.error(const SocketException('no hub in tests')),
-          ),
+          poller:
+              poller ??
+              Poller(
+                openRequest: (client, uri) =>
+                    Future.error(const SocketException('no hub in tests')),
+              ),
         ),
       );
       await drain(tester);
+    }
+
+    /// One snapshot of a fleet of two, where [lead] decides the fleet state.
+    ///
+    /// The roster never changes: a departure or an arrival would reset the
+    /// confirmation streak, which is a different rule than the one under test.
+    /// [mark] rides along in the paths, so every sample is identifiable on
+    /// screen — that is how these tests show a sample reached the app rather
+    /// than assuming the fixture and the owner are wired together.
+    Online sample(String lead, String mark) => online([
+      terminal('opus@pi', status: lead, cwd: 'C:/code/$mark'),
+      terminal('sol@pi', cwd: 'C:/code/$mark'),
+    ], receivedAt: DateTime.now());
+
+    /// The history line the window is showing, e.g. `Last all idle: 09:07`.
+    String history(WidgetTester tester) =>
+        tester.widget<Text>(find.textContaining('Last all idle: ')).data!;
+
+    /// The history line [at] would produce. The app reads the real clock, so
+    /// the tests bracket the confirming sample instead of pinning the minute.
+    String historyAt(DateTime at) =>
+        'Last all idle: ${at.hour.toString().padLeft(2, '0')}:'
+        '${at.minute.toString().padLeft(2, '0')}';
+
+    /// The instant the owner published, as the window received it. The line on
+    /// screen is only accurate to the minute, which is too coarse to tell a
+    /// preserved time from one silently rewritten by the next idle sample.
+    DateTime? recorded(WidgetTester tester) =>
+        tester.widget<StatusView>(find.byType(StatusView)).lastAllIdle.value;
+
+    /// Checks a confirmation against the bracket around the sample that caused
+    /// it, and against the line the window is showing, and returns it so a
+    /// later step can prove it did not move.
+    DateTime confirmation(
+      WidgetTester tester, {
+      required DateTime before,
+      required DateTime after,
+    }) {
+      final at = recorded(tester);
+      expect(at, isNotNull, reason: 'the confirmation recorded a time');
+      expect(
+        at!.isBefore(before) || at.isAfter(after),
+        isFalse,
+        reason: 'the app recorded when it observed the confirming sample',
+      );
+      expect(
+        history(tester),
+        historyAt(at),
+        reason: 'and the window is showing that very value',
+      );
+      return at;
     }
 
     testWidgets('a failed native call neither poisons the queue nor quit', (
@@ -879,7 +935,211 @@ void main() {
       );
       expect(reported, isEmpty, reason: 'no double disposal of the notifier');
     });
+
+    testWidgets('work then a confirmed idle opens the window exactly once', (
+      tester,
+    ) async {
+      final poller = _Samples();
+      await pumpApp(tester, poller: poller);
+      expect(find.text('Last all idle: —'), findsOneWidget);
+
+      poller.emit(sample('thinking', 'working'));
+      await drain(tester);
+      expect(
+        find.text('C:/code/working'),
+        findsNWidgets(2),
+        reason: 'the sample reached the window through the app',
+      );
+      expect(plugins.calls, isNot(contains('window_manager.show')));
+      expect(find.text('Last all idle: —'), findsOneWidget);
+
+      poller.emit(sample('idle', 'first-idle'));
+      await drain(tester);
+      expect(find.text('C:/code/first-idle'), findsNWidgets(2));
+      expect(
+        plugins.calls,
+        isNot(contains('window_manager.show')),
+        reason: 'one idle sample is not a confirmation',
+      );
+      expect(
+        find.text('Last all idle: —'),
+        findsOneWidget,
+        reason: 'and nothing is recorded before the confirmation either',
+      );
+
+      // The bracket closes on the synchronous emit, before the pumps, so the
+      // app observes the sample inside it.
+      final before = DateTime.now();
+      poller.emit(sample('idle', 'confirmed'));
+      final after = DateTime.now();
+      await drain(tester);
+
+      expect(
+        plugins.calls.where((c) => c == 'window_manager.show').length,
+        1,
+        reason: 'the confirmed alert opened the window, once',
+      );
+      final confirmed = confirmation(tester, before: before, after: after);
+
+      // Sustained idle: the fleet stays exactly as it was.
+      final quiet = List.of(plugins.calls);
+      poller.emit(sample('idle', 'still-idle'));
+      await drain(tester);
+      expect(
+        find.text('C:/code/still-idle'),
+        findsNWidgets(2),
+        reason: 'this sample arrived, before the next one replaces it',
+      );
+      poller.emit(sample('idle', 'idle-again'));
+      await drain(tester);
+      expect(find.text('C:/code/idle-again'), findsNWidgets(2));
+
+      expect(
+        plugins.calls,
+        quiet,
+        reason:
+            'staying idle asks the native side for nothing: no second '
+            'show, and the tray skips a state it already applied',
+      );
+      expect(
+        recorded(tester),
+        confirmed,
+        reason:
+            'the historical time does not drift: the same instant, not '
+            'merely the same minute on screen',
+      );
+      expect(history(tester), historyAt(confirmed));
+
+      await tester.pumpWidget(const SizedBox());
+      await drain(tester);
+      expect(plugins.calls, contains('tray_manager.destroy'));
+      // The app disposed the poller it was given, so the fixture refuses to
+      // publish anything else. Disposal was the owner's decision, not ours.
+      expect(
+        () => poller.emit(sample('idle', 'after-disposal')),
+        throwsStateError,
+        reason: 'the app released the poller it was constructed with',
+      );
+    });
+
+    testWidgets('muted, the confirmation is recorded but never opens', (
+      tester,
+    ) async {
+      final poller = _Samples();
+      await pumpApp(tester, poller: poller);
+      await plugins.clickMenuItem('mute');
+      await drain(tester);
+
+      poller.emit(sample('thinking', 'muted-working'));
+      await drain(tester);
+      expect(
+        find.text('C:/code/muted-working'),
+        findsNWidgets(2),
+        reason: 'the work that arms the cycle really was observed',
+      );
+      poller.emit(sample('idle', 'muted-first-idle'));
+      await drain(tester);
+      expect(find.text('C:/code/muted-first-idle'), findsNWidgets(2));
+      expect(
+        find.text('Last all idle: —'),
+        findsOneWidget,
+        reason: 'still one idle sample short of a confirmation',
+      );
+
+      final before = DateTime.now();
+      poller.emit(sample('idle', 'muted-confirmed'));
+      final after = DateTime.now();
+      await drain(tester);
+
+      expect(
+        plugins.calls,
+        isNot(contains('window_manager.show')),
+        reason: 'muting suppresses the announcement itself',
+      );
+      final muted = confirmation(tester, before: before, after: after);
+
+      // Unmuting is a real menu click, not an assignment to a field.
+      await plugins.clickMenuItem('mute');
+      await drain(tester);
+      poller.emit(sample('idle', 'unmuted-idle'));
+      await drain(tester);
+
+      expect(find.text('C:/code/unmuted-idle'), findsNWidgets(2));
+      expect(
+        plugins.calls,
+        isNot(contains('window_manager.show')),
+        reason: 'the alert was consumed while muted: unmuting cannot replay it',
+      );
+      expect(
+        recorded(tester),
+        muted,
+        reason: 'and no confirmation happened again to move the instant',
+      );
+      expect(history(tester), historyAt(muted));
+
+      // Unarmed is not broken: work after unmuting starts a fresh cycle.
+      poller.emit(sample('thinking', 'second-working'));
+      await drain(tester);
+      poller.emit(sample('idle', 'second-first-idle'));
+      await drain(tester);
+      final reBefore = DateTime.now();
+      poller.emit(sample('idle', 'second-confirmed'));
+      final reAfter = DateTime.now();
+      await drain(tester);
+
+      expect(
+        plugins.calls.where((c) => c == 'window_manager.show').length,
+        1,
+        reason: 'the first alert this app ever shows is this one',
+      );
+      confirmation(tester, before: reBefore, after: reAfter);
+
+      await tester.pumpWidget(const SizedBox());
+      await drain(tester);
+      expect(plugins.calls, contains('tray_manager.destroy'));
+    });
   });
+}
+
+/// A poller that never polls: [App]'s own seam, driven by the test.
+///
+/// It replaces the loop, not the wiring — the app still adds its listener to
+/// [status], reads `status.value` wherever it needs the newest snapshot, and
+/// disposes this object exactly as it disposes a real one.
+class _Samples extends Poller {
+  _Samples()
+    : super(
+        openRequest: (client, uri) =>
+            Future.error(const SocketException('the fixture never connects')),
+      );
+
+  final _samples = ValueNotifier<LinkStatus>(const NoHub());
+  bool _disposed = false;
+
+  @override
+  ValueListenable<LinkStatus> get status => _samples;
+
+  /// No loop, no timer, no socket: samples arrive only from [emit].
+  @override
+  void start() {}
+
+  /// Publishes one snapshot, exactly as a settled poll would.
+  void emit(LinkStatus status) {
+    if (_disposed) {
+      throw StateError('the fixture cannot emit after the app disposed it');
+    }
+    _samples.value = status;
+  }
+
+  @override
+  void dispose() {
+    _disposed = true;
+    // Releases the base notifier the app never sees, and everything else the
+    // real poller owns; deferred like the real one, because disposal can
+    // arrive from inside a notification.
+    super.dispose();
+    scheduleMicrotask(_samples.dispose);
+  }
 }
 
 /// Lets the queued native work and the poller's microtasks run.
