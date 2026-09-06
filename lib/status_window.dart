@@ -250,7 +250,22 @@ class _StatusViewState extends State<StatusView> {
       'The hub responds but does not support /status — update pi-link and '
       'restart the terminals.',
     ),
-    Online(:final terminals, :final receivedAt) => RawScrollbar(
+    Online(:final terminals, :final receivedAt) => _list(terminals, receivedAt),
+  };
+
+  Widget _explanation(String text) => Text(text, style: _metaStyle);
+
+  /// The terminals, in display order.
+  Widget _list(List<Terminal> terminals, DateTime receivedAt) {
+    // Recomputed from the snapshot in hand on every build, so a new roster, a
+    // new activity or a new hub is on screen at once and no order outlives the
+    // data it came from.
+    final rows = _ordered(terminals);
+    // The parser guarantees the canonical first entry is the hub and rejects a
+    // payload where it is not. Holding the object, rather than a position or a
+    // name, keeps the badge on that terminal wherever the sort moves it.
+    final hub = terminals.first;
+    return RawScrollbar(
       // Ten terminals do not fit in 320 px, so the list is the only part that
       // scrolls; header and footer stay put. The thumb is the only sign that
       // there is more, and it appears only when there is.
@@ -263,20 +278,16 @@ class _StatusViewState extends State<StatusView> {
         controller: _scroll,
         // Room for the thumb, so it never sits on top of an age.
         padding: const EdgeInsets.only(right: 10),
-        itemCount: terminals.length,
+        itemCount: rows.length,
         itemBuilder: (context, i) => _terminal(
           context,
-          terminals[i],
+          rows[i],
           receivedAt,
-          // The parser guarantees the first entry is the hub, and rejects a
-          // payload where it is not, so the marker needs no second source.
-          isHub: i == 0,
+          isHub: identical(rows[i], hub),
         ),
       ),
-    ),
-  };
-
-  Widget _explanation(String text) => Text(text, style: _metaStyle);
+    );
+  }
 
   Widget _terminal(
     BuildContext context,
@@ -409,13 +420,65 @@ class _StatusDot extends StatelessWidget {
   }
 
   /// `null` means unknown, which is drawn rather than coloured.
-  static Color? _colourOf(String? status) => switch (status) {
-    'compacting' => _compacting,
-    'thinking' => _busy,
-    final s? when s.startsWith('tool:') => _busy,
-    'idle' => _idle,
-    _ => null,
+  static Color? _colourOf(String? status) => switch (_activityOf(status)) {
+    _Activity.working => _busy,
+    _Activity.compacting => _compacting,
+    _Activity.idle => _idle,
+    _Activity.unknown => null,
   };
+}
+
+/// What a terminal is doing, in the order the panel lists the rows: the ones
+/// working now first, the ones nothing is known about last.
+enum _Activity { working, compacting, idle, unknown }
+
+/// The one place this file reads a raw status word. The vocabulary is the
+/// model's own — `thinking`, `tool:*`, `compacting`, `idle`, and anything else
+/// is a word this version does not know.
+_Activity _activityOf(String? status) => switch (status) {
+  'thinking' => _Activity.working,
+  final status? when status.startsWith('tool:') => _Activity.working,
+  'compacting' => _Activity.compacting,
+  'idle' => _Activity.idle,
+  _ => _Activity.unknown,
+};
+
+/// The rows, most active first and, within the same activity, whichever
+/// changed state most recently.
+///
+/// Returns a new list. [terminals] is the canonical roster the poller, the
+/// alert and the tray read from the same snapshot, and reordering it here
+/// would quietly change what the hub said.
+List<Terminal> _ordered(List<Terminal> terminals) {
+  // Positions are sorted rather than the terminals themselves, so the roster
+  // index survives as the last comparison: Dart's sort is not stable, and rows
+  // that tie must stay in the order the hub sent them.
+  final positions = [for (var i = 0; i < terminals.length; i++) i];
+  positions.sort((a, b) {
+    final left = terminals[a];
+    final right = terminals[b];
+    final byActivity = _activityOf(
+      left.status,
+    ).index.compareTo(_activityOf(right.status).index);
+    // Activity always wins: a terminal that started working an hour ago is
+    // still ahead of one that went idle a second ago.
+    if (byActivity != 0) return byActivity;
+    final byAge = _compareAges(left.sinceSeconds, right.sinceSeconds);
+    if (byAge != 0) return byAge;
+    return a.compareTo(b);
+  });
+  return [for (final position in positions) terminals[position]];
+}
+
+/// Ascending, with an unknown age last.
+///
+/// These are the raw seconds from the payload, not the ages on screen: every
+/// row of one snapshot ages by the same amount, so the two orders are
+/// identical and this one does not move while the clock ticks.
+int _compareAges(int? a, int? b) {
+  if (a == null) return b == null ? 0 : 1;
+  if (b == null) return -1;
+  return a.compareTo(b);
 }
 
 /// The fleet state leads the panel, so it is the title.
@@ -434,20 +497,21 @@ String _fleetTitle(List<Terminal> terminals) {
   var unknown = 0;
   var idle = 0;
   for (final terminal in terminals) {
-    switch (terminal.status) {
-      case 'compacting':
+    switch (_activityOf(terminal.status)) {
+      case _Activity.working:
+        working++;
+      case _Activity.compacting:
         compacting++;
-      case 'thinking':
-        working++;
-      case final status? when status.startsWith('tool:'):
-        working++;
-      case 'idle':
+      case _Activity.idle:
         idle++;
-      default:
+      case _Activity.unknown:
         unknown++;
     }
   }
   if (idle == terminals.length) return 'All agents are idle';
+  // Listed in the order the title has always read them, which is not the order
+  // the rows are sorted in: the rows put the unknown last, the title keeps
+  // idle — the reassuring number — at the end.
   return [
     if (working > 0) '$working working',
     if (compacting > 0) '$compacting compacting',

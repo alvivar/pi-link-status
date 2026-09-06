@@ -90,6 +90,15 @@ void main() {
     return (status: statusNotifier, lastAllIdle: idleNotifier, taps: taps);
   }
 
+  /// The row names on screen, top to bottom, each with its hub marker if it
+  /// carries one. Only the names contain '@': the title, the paths, the
+  /// statuses and the footer never reach this list.
+  List<String> rows(WidgetTester tester) => tester
+      .widgetList<RichText>(find.byType(RichText))
+      .map((name) => name.text.toPlainText())
+      .where((name) => name.contains('@'))
+      .toList();
+
   group('header', () {
     testWidgets('states the scope, the hub and the historical time', (
       tester,
@@ -302,6 +311,142 @@ void main() {
         findsOneWidget,
       );
       expect(find.text('Click to hide'), findsOneWidget);
+    });
+  });
+
+  group('ordering', () {
+    testWidgets('activity ranks the rows, and no age can overrule it', (
+      tester,
+    ) async {
+      await pumpView(
+        tester,
+        status: online([
+          // Deliberately scrambled, and the hub is the idle one.
+          terminal('hub@x', since: 5),
+          terminal('old-worker@x', status: 'thinking', since: 3600),
+          terminal('fresh-unknown@x', status: 'waiting-approval', since: 1),
+          terminal('compactor@x', status: 'compacting', since: 900),
+          terminal('tool-user@x', status: 'tool:read', since: 7),
+        ]),
+      );
+
+      expect(rows(tester), [
+        // Working first, even the one that started an hour ago; then
+        // compacting; then idle; and last the word this version cannot read,
+        // however recent it is.
+        'tool-user@x',
+        'old-worker@x',
+        'compactor@x',
+        'hub@x  hub',
+        'fresh-unknown@x',
+      ]);
+    });
+
+    testWidgets('inside a rank, the most recent state change comes first', (
+      tester,
+    ) async {
+      await pumpView(
+        tester,
+        status: online([
+          terminal('long-idle@x', since: 300),
+          terminal('just-idle@x', since: 5),
+          terminal('a-while@x', since: 60),
+          terminal('also-just-idle@x', since: 5),
+        ]),
+      );
+
+      expect(rows(tester), [
+        // Recently idle before long idle, and the two that tie stay in the
+        // order the hub sent them.
+        'just-idle@x',
+        'also-just-idle@x',
+        'a-while@x',
+        'long-idle@x  hub',
+      ]);
+    });
+
+    testWidgets('ages are compared as numbers, not as the text on screen', (
+      tester,
+    ) async {
+      await pumpView(
+        tester,
+        status: online([
+          terminal('an-hour@x', since: 3600),
+          terminal('a-minute@x', since: 59),
+        ]),
+      );
+
+      // On screen these read '1h' and '59s': sorted as text the hour would
+      // come first.
+      expect(find.text('idle 1h'), findsOneWidget);
+      expect(find.text('idle 59s'), findsOneWidget);
+      expect(rows(tester), ['a-minute@x', 'an-hour@x  hub']);
+    });
+
+    testWidgets('an unknown row with an age precedes one without', (
+      tester,
+    ) async {
+      await pumpView(
+        tester,
+        status: online([
+          terminal('hub@x', status: null),
+          terminal('known-age@x', status: 'waiting-approval', since: 30),
+          terminal('no-age@x', status: null),
+        ]),
+      );
+
+      // A missing age is not a fresh one: it sorts last, and the two rows that
+      // have none keep the roster's order between them.
+      expect(rows(tester), ['known-age@x', 'hub@x  hub', 'no-age@x']);
+    });
+
+    testWidgets('the roster the rest of the app reads is left alone', (
+      tester,
+    ) async {
+      final roster = [
+        terminal('hub@x', since: 5),
+        terminal('worker@x', status: 'thinking', since: 4),
+      ];
+      final asSent = List<Terminal>.of(roster);
+      final status = online(roster);
+
+      await pumpView(tester, status: status);
+
+      // Same objects, same positions: sorting in place would have swapped
+      // them here, and the poller, the alert and the tray read this list.
+      expect(roster, orderedEquals(asSent));
+      expect(identical(status.terminals.first, asSent.first), isTrue);
+      expect(status.hub, 'hub@x', reason: 'the payload still names its hub');
+      expect(rows(tester), [
+        'worker@x',
+        'hub@x  hub',
+      ], reason: 'the display did reorder, so the checks above mean something');
+    });
+
+    testWidgets('a new snapshot re-sorts and moves the marker', (tester) async {
+      final view = await pumpView(
+        tester,
+        status: online([
+          terminal('first-hub@x', since: 5),
+          terminal('worker@x', status: 'thinking', since: 4),
+        ]),
+      );
+
+      expect(rows(tester), ['worker@x', 'first-hub@x  hub']);
+
+      // The hub changed, the worker went idle, and a newcomer is working.
+      view.status.value = online([
+        terminal('second-hub@x', status: 'tool:read', since: 12),
+        terminal('worker@x', since: 2),
+        terminal('newcomer@x', status: 'thinking', since: 1),
+      ]);
+      await tester.pump();
+
+      expect(rows(tester), [
+        'newcomer@x',
+        'second-hub@x  hub',
+        'worker@x',
+      ], reason: 'order and marker come from the new snapshot, not the old');
     });
   });
 
