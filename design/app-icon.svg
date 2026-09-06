@@ -1,0 +1,27 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  pi_link_status — Windows executable icon (vector master).
+
+  Grafito mark: a graphite rounded tile with a bold blue pi (π) built from
+  plain shapes, so rendering never depends on an installed font.
+
+  Geometry is designed for 16 px first and snapped to a 16-unit grid: on the
+  256 canvas, 16 units = 1 px at 16 px, so every edge lands on a whole pixel
+  at 16/32/48/64/128/256 px. Tile margin 16 (1 px), stroke 32 (2 px), leg gap
+  32 (2 px), pi 160×128 (10×8 px), centered on the tile.
+  Colors match the status panel: background #1B1B1F, working blue #64B5F6
+  (7.75:1 contrast). Corners outside the tile are transparent.
+
+  Export workflow: this SVG -> design/app-icon.png (256×256, lossless) ->
+  ICO frames by resizing the PNG (see tool/gen_app_icon.dart once it exists).
+-->
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 256 256" width="256" height="256">
+  <!-- Graphite tile -->
+  <rect x="16" y="16" width="224" height="224" rx="52" fill="#1B1B1F"/>
+  <!-- Pi: one bar and two legs, slightly rounded ends -->
+  <g fill="#64B5F6">
+    <rect x="48" y="64" width="160" height="32" rx="6"/>
+    <rect x="80" y="64" width="32" height="128" rx="6"/>
+    <rect x="144" y="64" width="32" height="128" rx="6"/>
+  </g>
+</svg>
