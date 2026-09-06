@@ -659,21 +659,39 @@ void main() {
     // and the network are replaced.
     late _Plugins plugins;
     late List<FlutterErrorDetails> reported;
-    late void Function() restoreErrors;
 
     setUp(() {
       plugins = _Plugins()..install();
       reported = <FlutterErrorDetails>[];
     });
 
-    /// Starts the app with a poller that never reaches the network. Also takes
-    /// over the error reporting, which flutter_test installs per test, so a
-    /// handled native failure is evidence instead of a test failure.
-    Future<void> pumpApp(WidgetTester tester) async {
-      final previous = FlutterError.onError;
+    /// Collects the errors the app reports while [operations] run, and hands
+    /// the framework's own reporter back before returning.
+    ///
+    /// Only the native failures a test provokes are evidence; everything else
+    /// belongs to flutter_test. The handover matters: while this handler is
+    /// installed, a failed `expect` is collected instead of raised and comes
+    /// back as the binding's `_pendingExceptionDetails != null` assertion,
+    /// which hides the real mismatch and leaves every later test in the file
+    /// reporting that it did not complete. So the capture wraps the calls that
+    /// are expected to fail, never the expectations about them.
+    Future<void> capturing(Future<void> Function() operations) async {
+      final reporter = FlutterError.onError;
       FlutterError.onError = reported.add;
-      restoreErrors = () => FlutterError.onError = previous;
-      addTearDown(restoreErrors);
+      // Fallback: the restore below covers a throwing operation, this covers
+      // an escape the try cannot see, such as a failure inside the restore.
+      addTearDown(() => FlutterError.onError = reporter);
+      try {
+        await operations();
+      } finally {
+        FlutterError.onError = reporter;
+      }
+    }
+
+    /// Starts the app with a poller that never reaches the network. Startup is
+    /// not expected to fail, so it reports to flutter_test like any other test
+    /// code: an error here should be a red test, not collected evidence.
+    Future<void> pumpApp(WidgetTester tester) async {
       await tester.pumpWidget(
         App(
           poller: Poller(
@@ -691,8 +709,10 @@ void main() {
       plugins.failing.add('window_manager.show');
       await pumpApp(tester);
 
-      await plugins.trayEvent('onTrayIconMouseDown');
-      await drain(tester);
+      await capturing(() async {
+        await plugins.trayEvent('onTrayIconMouseDown');
+        await drain(tester);
+      });
       expect(plugins.calls, contains('window_manager.show'));
       expect(reported.single.context.toString(), 'while showing the window');
 
@@ -716,19 +736,20 @@ void main() {
     ) async {
       await pumpApp(tester);
       plugins.failing.add('window_manager.show');
-      final showing = plugins.hold('window_manager.show');
 
-      await plugins.trayEvent('onTrayIconMouseDown'); // show, held mid-call
-      await drain(tester);
-      // Two clicks while that show is stuck: hide, then show again. The newest
-      // intent is the same boolean the stuck call is applying, so reconciling
-      // it away would silently drop the user's latest decision.
-      await plugins.trayEvent('onTrayIconMouseDown');
-      await plugins.trayEvent('onTrayIconMouseDown');
+      await capturing(() async {
+        final showing = plugins.hold('window_manager.show');
+        await plugins.trayEvent('onTrayIconMouseDown'); // show, held mid-call
+        await drain(tester);
+        // Two clicks while that show is stuck: hide, then show again. The
+        // newest intent is the same boolean the stuck call is applying, so
+        // reconciling it away would silently drop the user's latest decision.
+        await plugins.trayEvent('onTrayIconMouseDown');
+        await plugins.trayEvent('onTrayIconMouseDown');
 
-      showing.complete(); // the held show fails now
-      await drain(tester);
-      restoreErrors(); // so a failing expectation reports itself, not a mask
+        showing.complete(); // the held show fails now
+        await drain(tester);
+      });
 
       expect(
         plugins.calls.where((c) => c == 'window_manager.show').length,
@@ -755,8 +776,10 @@ void main() {
       await pumpApp(tester);
       plugins.failing.add('tray_manager.destroy');
 
-      await plugins.clickMenuItem('quit');
-      await drain(tester);
+      await capturing(() async {
+        await plugins.clickMenuItem('quit');
+        await drain(tester);
+      });
 
       expect(plugins.calls, contains('tray_manager.destroy'));
       expect(plugins.calls.last, 'window_manager.destroy');
@@ -774,19 +797,24 @@ void main() {
       final stuck = plugins.hold('tray_manager.setContextMenu');
       await pumpApp(tester);
 
-      // Delivered in the same turn as the quit click: only the synchronous
-      // flag can stop these, the deferred unregistration is already too late.
-      final quit = plugins.clickMenuItem('quit');
-      final rightClick = plugins.trayEvent('onTrayIconRightMouseDown');
-      final leftClick = plugins.trayEvent('onTrayIconMouseDown');
-      await Future.wait([quit, rightClick, leftClick]);
-      await drain(tester);
+      await capturing(() async {
+        // Delivered in the same turn as the quit click: only the synchronous
+        // flag can stop these, the deferred unregistration is already too
+        // late.
+        final quit = plugins.clickMenuItem('quit');
+        final rightClick = plugins.trayEvent('onTrayIconRightMouseDown');
+        final leftClick = plugins.trayEvent('onTrayIconMouseDown');
+        await Future.wait([quit, rightClick, leftClick]);
+        await drain(tester);
+      });
 
       expect(plugins.calls, isNot(contains('tray_manager.popUpContextMenu')));
       expect(plugins.calls, isNot(contains('window_manager.show')));
 
-      stuck.complete();
-      await drain(tester);
+      await capturing(() async {
+        stuck.complete();
+        await drain(tester);
+      });
       expect(plugins.calls.last, 'window_manager.destroy');
       expect(reported, isEmpty);
     });
@@ -797,8 +825,10 @@ void main() {
       await pumpApp(tester);
       plugins.failing.add('tray_manager.popUpContextMenu');
 
-      await plugins.trayEvent('onTrayIconRightMouseDown');
-      await drain(tester);
+      await capturing(() async {
+        await plugins.trayEvent('onTrayIconRightMouseDown');
+        await drain(tester);
+      });
 
       expect(plugins.calls, contains('tray_manager.popUpContextMenu'));
       expect(reported.single.context.toString(), 'while opening the tray menu');
@@ -811,16 +841,20 @@ void main() {
       'ordinary disposal releases the tray and survives late clicks',
       (tester) async {
         await pumpApp(tester);
-        await tester.pumpWidget(const SizedBox());
-        await drain(tester);
+        await capturing(() async {
+          await tester.pumpWidget(const SizedBox());
+          await drain(tester);
+        });
 
         expect(plugins.calls, contains('tray_manager.destroy'));
-        // A click that arrives after disposal must not setState or reappear.
-        await plugins.trayEvent('onTrayIconMouseDown');
-        await plugins.trayEvent('onTrayMenuItemClick', {
-          'id': plugins.idOf('mute'),
+        await capturing(() async {
+          // A click after disposal must not setState or reappear.
+          await plugins.trayEvent('onTrayIconMouseDown');
+          await plugins.trayEvent('onTrayMenuItemClick', {
+            'id': plugins.idOf('mute'),
+          });
+          await drain(tester);
         });
-        await drain(tester);
 
         expect(plugins.calls, isNot(contains('window_manager.show')));
         expect(reported, isEmpty);
@@ -831,10 +865,12 @@ void main() {
       tester,
     ) async {
       await pumpApp(tester);
-      await plugins.clickMenuItem('quit');
-      await drain(tester);
-      await tester.pumpWidget(const SizedBox());
-      await drain(tester);
+      await capturing(() async {
+        await plugins.clickMenuItem('quit');
+        await drain(tester);
+        await tester.pumpWidget(const SizedBox());
+        await drain(tester);
+      });
 
       expect(
         plugins.calls.where((c) => c == 'tray_manager.destroy').length,
