@@ -1,6 +1,6 @@
 <img src="design/app-icon.png" alt="pi_link_status icon" width="64" align="right">
 
-# pi_link_status
+# pi-link-status
 
 A small Windows system-tray companion for [pi-link](https://github.com/alvivar/pi-link): it watches the
 local pi-link hub and shows, at a glance, whether your Pi coding-agent terminals are working or idle.
@@ -8,8 +8,6 @@ It does not run the hub or the terminals; it only reads what the hub already rep
 
 <p align="center">
   <img src="design/grafito.png" alt="Design preview of the status panel: a dark 420×320 panel listing six terminals with their state, working directory and context usage" width="420">
-  <br>
-  <em>Design preview of the status panel (from <code>design/grafito.html</code>), not a screenshot of the running app.</em>
 </p>
 
 ## What it does
