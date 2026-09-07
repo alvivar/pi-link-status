@@ -48,6 +48,17 @@ class Tray with TrayListener {
     required bool muted,
     required bool windowVisible,
   }) async {
+    // The menu goes first, and not for cosmetic reasons: if the icon cannot be
+    // registered at startup the plugin reports an error, and everything after
+    // it in this method is skipped. Configuring the menu first means that when
+    // the icon does appear — the plugin retries a failed registration on its
+    // own — it already has 'Quit' on it. The other order leaves a hidden app
+    // with an icon and no way to close it.
+    final menu = (muted, windowVisible);
+    if (menu != _menu) {
+      await trayManager.setContextMenu(_menuFor(muted, windowVisible));
+      _menu = menu;
+    }
     final icon = _iconPath(status.fleet);
     if (icon != _icon) {
       await trayManager.setIcon(icon);
@@ -62,13 +73,6 @@ class Tray with TrayListener {
         _tooltip = tooltip;
       }
     }
-    // The menu depends on nothing else: no terminal rows, no clock, so a busy
-    // fleet changing every second never rebuilds it.
-    final menu = (muted, windowVisible);
-    if (menu != _menu) {
-      await trayManager.setContextMenu(_menuFor(muted, windowVisible));
-      _menu = menu;
-    }
   }
 
   /// Stops accepting clicks, immediately and idempotently. Unregistering is
@@ -79,6 +83,28 @@ class Tray with TrayListener {
     if (!_active) return;
     _active = false;
     scheduleMicrotask(() => trayManager.removeListener(this));
+    // The native recovery timer has to stop now. [destroy] would stop it too,
+    // but the owner queues that behind whatever tray work is already running,
+    // and a held call makes that interval unbounded — the timer would keep
+    // re-adding an icon for an app that is quitting. Not awaited on purpose,
+    // so this only guarantees the request is dispatched ahead of the queued
+    // work, not that the native cancel has run by the time this returns; a
+    // failure is reported rather than dropped.
+    if (Platform.isWindows) {
+      trayManager.deactivateRecovery().catchError((
+        Object error,
+        StackTrace stack,
+      ) {
+        FlutterError.reportError(
+          FlutterErrorDetails(
+            exception: error,
+            stack: stack,
+            library: 'pi_link_status',
+            context: ErrorDescription('while stopping tray icon recovery'),
+          ),
+        );
+      });
+    }
   }
 
   /// Removes the icon. Idempotent: quit and disposal may both ask for it.

@@ -94,6 +94,15 @@ class TrayManager {
     await _channel.invokeMethod('destroy');
   }
 
+  /// Stops the Windows plugin's tray-icon recovery timer, without removing the
+  /// icon. For an app whose [destroy] is queued behind other work: recovery
+  /// must stop when the app decides to quit, not when the queue drains.
+  ///
+  /// Local addition to the vendored copy, Windows only; see ../../PATCHES.md.
+  Future<void> deactivateRecovery() async {
+    await _channel.invokeMethod('deactivateRecovery');
+  }
+
   /// Sets the image associated with this tray icon.
   ///
   /// [iconPath] is the path to the image file.

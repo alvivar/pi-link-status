@@ -936,6 +936,87 @@ void main() {
       expect(reported, isEmpty, reason: 'no double disposal of the notifier');
     });
 
+    testWidgets('a tray icon the shell refuses still gets its menu', (
+      tester,
+    ) async {
+      // The native plugin reports a refused registration as an error. Without
+      // the icon there is no way to reach the app, so the menu it carries —
+      // and its 'Quit' — must be configured anyway: the plugin retries the
+      // registration on its own, with no further help from Dart.
+      plugins.failing.add('tray_manager.setIcon');
+      await capturing(() async {
+        await pumpApp(tester);
+      });
+
+      expect(
+        plugins.calls,
+        containsAllInOrder([
+          'tray_manager.setContextMenu',
+          'tray_manager.setIcon',
+        ]),
+        reason: 'the menu is configured before the icon can fail',
+      );
+      expect(
+        reported.single.exception,
+        isA<PlatformException>(),
+        reason: 'and the failure is reported, not swallowed',
+      );
+
+      // The same desired state must be attempted again: a failed call was not
+      // remembered as applied.
+      plugins.calls.clear();
+      await capturing(() async {
+        await plugins.clickMenuItem('mute');
+        await drain(tester);
+      });
+      expect(
+        plugins.calls,
+        contains('tray_manager.setIcon'),
+        reason: 'the unchanged offline icon is retried, not skipped',
+      );
+
+      await tester.pumpWidget(const SizedBox());
+      await drain(tester);
+    });
+
+    testWidgets('quitting dispatches the recovery stop before the queue drains', (
+      tester,
+    ) async {
+      await pumpApp(tester);
+      // A tray call the app is already inside when the user quits. The queued
+      // destroy cannot run until this finishes, which is exactly the window in
+      // which the native retry timer would keep re-adding the icon.
+      final held = plugins.hold('tray_manager.setContextMenu');
+      unawaited(plugins.clickMenuItem('mute'));
+      await drain(tester);
+      plugins.calls.clear();
+
+      await plugins.clickMenuItem('quit');
+      await drain(tester);
+      expect(
+        plugins.calls,
+        contains('tray_manager.deactivateRecovery'),
+        reason:
+            'the stop is dispatched when the app decides to quit; whether the '
+            'native timer has already been cancelled is not observable here',
+      );
+      expect(
+        plugins.calls,
+        isNot(contains('tray_manager.destroy')),
+        reason: 'while the held call still owns the queue',
+      );
+
+      held.complete();
+      await drain(tester);
+      await tester.pumpWidget(const SizedBox());
+      await drain(tester);
+      expect(
+        plugins.calls.where((c) => c == 'tray_manager.destroy').length,
+        1,
+        reason: 'and the eventual cleanup still removes the icon exactly once',
+      );
+    });
+
     testWidgets('work then a confirmed idle opens the window exactly once', (
       tester,
     ) async {

@@ -13,13 +13,23 @@
 
 #include <algorithm>
 #include <codecvt>
+#include <functional>
 #include <map>
 #include <memory>
 #include <sstream>
+#include <string>
 
-#define WM_MYMESSAGE (WM_USER + 1)
+#include "tray_icon.h"
+#include "win32_tray_shell.h"
 
 namespace {
+
+// Turns a failure into a method-channel error with a usable diagnostic.
+std::string DescribeError(DWORD last_error) {
+  std::ostringstream text;
+  text << " (GetLastError=" << last_error << ")";
+  return text.str();
+}
 
 const flutter::EncodableValue* ValueOrNull(const flutter::EncodableMap& map,
                                            const char* key) {
@@ -46,18 +56,17 @@ class TrayManagerPlugin : public flutter::Plugin {
   std::wstring_convert<std::codecvt_utf8_utf16<wchar_t>> g_converter;
 
   flutter::PluginRegistrarWindows* registrar;
-  NOTIFYICONDATA nid = {};
-  NOTIFYICONIDENTIFIER niif = {};
+  // Declared before tray_ so it outlives it: ~TrayIcon still uses the shell.
+  tray_manager::Win32TrayShell shell_{[this]() { return GetMainWindow(); }};
+  tray_manager::TrayIcon tray_{&shell_};
   // do create pop-up menu only once.
   HMENU hMenu = CreatePopupMenu();
-  bool tray_icon_setted = false;
   UINT windows_taskbar_created_message_id = 0;
 
   // The ID of the WindowProc delegate registration.
   int window_proc_id = -1;
 
   void TrayManagerPlugin::_CreateMenu(HMENU menu, flutter::EncodableMap args);
-  void TrayManagerPlugin::_ApplyIcon();
 
   // Called for top-level WindowProc delegation.
   std::optional<LRESULT> TrayManagerPlugin::HandleWindowProc(HWND hwnd,
@@ -65,6 +74,9 @@ class TrayManagerPlugin : public flutter::Plugin {
                                                              WPARAM wparam,
                                                              LPARAM lparam);
   HWND TrayManagerPlugin::GetMainWindow();
+  void TrayManagerPlugin::DeactivateRecovery(
+      const flutter::MethodCall<flutter::EncodableValue>& method_call,
+      std::unique_ptr<flutter::MethodResult<flutter::EncodableValue>> result);
   void TrayManagerPlugin::Destroy(
       const flutter::MethodCall<flutter::EncodableValue>& method_call,
       std::unique_ptr<flutter::MethodResult<flutter::EncodableValue>> result);
@@ -184,10 +196,12 @@ std::optional<LRESULT> TrayManagerPlugin::HandleWindowProc(HWND hWnd,
                                                            LPARAM lParam) {
   std::optional<LRESULT> result;
   if (message == WM_DESTROY) {
-    if (tray_icon_setted) {
-      Shell_NotifyIcon(NIM_DELETE, &nid);
-      DestroyIcon(nid.hIcon);
-    }
+    tray_.Destroy();
+  } else if (message == WM_TIMER && shell_.ConsumeTimer(hWnd, wParam)) {
+    // Ours, and now spent: the state machine re-arms it only if the attempt
+    // fails again and the budget allows, so a permanent failure stops on its
+    // own. A foreign or stale WM_TIMER falls through untouched.
+    tray_.RetryNow();
   } else if (message == WM_COMMAND) {
     flutter::EncodableMap eventData = flutter::EncodableMap();
     eventData[flutter::EncodableValue("id")] =
@@ -209,22 +223,18 @@ std::optional<LRESULT> TrayManagerPlugin::HandleWindowProc(HWND hWnd,
         return DefWindowProc(hWnd, message, wParam, lParam);
     };
   } else if (message == windows_taskbar_created_message_id) {
-    if (windows_taskbar_created_message_id != 0 && tray_icon_setted) {
-      // restore the icon with the existing resource.
-      tray_icon_setted = false;
-      _ApplyIcon();
+    if (windows_taskbar_created_message_id != 0) {
+      // Explorer restarted and dropped every icon: register again, with a
+      // fresh budget because the notification area may not accept us yet.
+      tray_.Restore();
     }
   } else if (message == WM_POWERBROADCAST) {
     // Handle power management events (sleep/wake)
     switch (wParam) {
       case PBT_APMRESUMEAUTOMATIC:
       case PBT_APMRESUMESUSPEND:
-        // System is resuming from sleep/hibernation
-        if (tray_icon_setted) {
-          // Restore the tray icon after system wakes up
-          tray_icon_setted = false;
-          _ApplyIcon();
-        }
+        // Restore the tray icon after the system wakes up.
+        tray_.Restore();
         break;
       default:
         break;
@@ -234,15 +244,29 @@ std::optional<LRESULT> TrayManagerPlugin::HandleWindowProc(HWND hWnd,
 }
 
 HWND TrayManagerPlugin::GetMainWindow() {
-  return ::GetAncestor(registrar->GetView()->GetNativeWindow(), GA_ROOT);
+  // Null during teardown, when the tray is still releasing what it owns.
+  flutter::FlutterView* view = registrar->GetView();
+  if (view == nullptr) {
+    return nullptr;
+  }
+  return ::GetAncestor(view->GetNativeWindow(), GA_ROOT);
+}
+
+// Local addition: stops the recovery timer at once, without giving up the icon.
+// The app calls this the moment it starts quitting, because its `destroy` may
+// be queued behind work that takes arbitrarily long. See ../../PATCHES.md.
+void TrayManagerPlugin::DeactivateRecovery(
+    const flutter::MethodCall<flutter::EncodableValue>& method_call,
+    std::unique_ptr<flutter::MethodResult<flutter::EncodableValue>> result) {
+  tray_.Deactivate();
+
+  result->Success();
 }
 
 void TrayManagerPlugin::Destroy(
     const flutter::MethodCall<flutter::EncodableValue>& method_call,
     std::unique_ptr<flutter::MethodResult<flutter::EncodableValue>> result) {
-  Shell_NotifyIcon(NIM_DELETE, &nid);
-  DestroyIcon(nid.hIcon);
-  tray_icon_setted = false;
+  tray_.Destroy();
 
   result->Success(flutter::EncodableValue(true));
 }
@@ -258,48 +282,18 @@ void TrayManagerPlugin::SetIcon(
 
   std::wstring_convert<std::codecvt_utf8_utf16<wchar_t>> converter;
 
-  if (nid.hIcon != nullptr) {
-    DestroyIcon(nid.hIcon);
+  const tray_manager::ChannelDisposition disposition =
+      tray_manager::DispositionFor(tray_.SetIcon(converter.from_bytes(iconPath)));
+  if (disposition == tray_manager::ChannelDisposition::kSuccess) {
+    result->Success(flutter::EncodableValue(true));
+    return;
   }
-
-  nid.hIcon = static_cast<HICON>(
-      LoadImage(nullptr, (LPCWSTR)(converter.from_bytes(iconPath).c_str()),
-                IMAGE_ICON, GetSystemMetrics(SM_CXSMICON),
-                GetSystemMetrics(SM_CYSMICON), LR_LOADFROMFILE));
-
-  _ApplyIcon();
-
-  result->Success(flutter::EncodableValue(true));
-}
-
-void TrayManagerPlugin::_ApplyIcon() {
-  if (tray_icon_setted) {
-    Shell_NotifyIcon(NIM_MODIFY, &nid);
-  } else {
-    HICON hIconBackup = nid.hIcon;
-    WCHAR szTipBackup[128];
-    StringCchCopy(szTipBackup, _countof(szTipBackup), nid.szTip);
-    
-    ZeroMemory(&nid, sizeof(NOTIFYICONDATA));
-    nid.cbSize = sizeof(NOTIFYICONDATA);
-    nid.hWnd = GetMainWindow();
-    nid.uID = 1;
-    nid.hIcon = hIconBackup;
-    StringCchCopy(nid.szTip, _countof(nid.szTip), szTipBackup);
-    nid.uCallbackMessage = WM_MYMESSAGE;
-    nid.uFlags = NIF_MESSAGE | NIF_ICON;
-    if (nid.szTip[0] != '\0') {
-      nid.uFlags |= NIF_TIP;
-    }
-    Shell_NotifyIcon(NIM_ADD, &nid);
-  }
-
-  niif.cbSize = sizeof(NOTIFYICONIDENTIFIER);
-  niif.hWnd = nid.hWnd;
-  niif.uID = nid.uID;
-  niif.guidItem = GUID_NULL;
-
-  tray_icon_setted = true;
+  result->Error(
+      tray_manager::ErrorCodeFor(disposition),
+      (disposition == tray_manager::ChannelDisposition::kIconLoadFailed
+           ? "LoadImage could not read " + iconPath
+           : std::string("The notification area refused the icon")) +
+          DescribeError(shell_.last_error()));
 }
 
 void TrayManagerPlugin::SetToolTip(
@@ -312,12 +306,19 @@ void TrayManagerPlugin::SetToolTip(
       std::get<std::string>(args.at(flutter::EncodableValue("toolTip")));
 
   std::wstring_convert<std::codecvt_utf8_utf16<wchar_t>> converter;
-  nid.uFlags = NIF_MESSAGE | NIF_ICON | NIF_TIP;
-  StringCchCopy(nid.szTip, _countof(nid.szTip),
-                converter.from_bytes(toolTip).c_str());
-  Shell_NotifyIcon(NIM_MODIFY, &nid);
 
-  result->Success(flutter::EncodableValue(true));
+  const tray_manager::ChannelDisposition disposition = tray_manager::
+      DispositionFor(tray_.SetToolTip(converter.from_bytes(toolTip)));
+  if (disposition == tray_manager::ChannelDisposition::kSuccess) {
+    result->Success(flutter::EncodableValue(true));
+    return;
+  }
+  result->Error(
+      tray_manager::ErrorCodeFor(disposition),
+      disposition == tray_manager::ChannelDisposition::kIconLoadFailed
+          ? std::string("No tray icon is loaded, so its tooltip cannot be set")
+          : "The notification area refused the tooltip" +
+                DescribeError(shell_.last_error()));
 }
 
 void TrayManagerPlugin::SetContextMenu(
@@ -370,7 +371,7 @@ void TrayManagerPlugin::GetBounds(
   const flutter::EncodableMap& args =
       std::get<flutter::EncodableMap>(*method_call.arguments());
 
-  if (!tray_icon_setted) {
+  if (!tray_.registered()) {
     result->Success();
     return;
   }
@@ -379,7 +380,7 @@ void TrayManagerPlugin::GetBounds(
       std::get<double>(args.at(flutter::EncodableValue("devicePixelRatio")));
 
   RECT rect;
-  Shell_NotifyIconGetRect(&niif, &rect);
+  Shell_NotifyIconGetRect(&shell_.identifier(), &rect);
   flutter::EncodableMap resultMap = flutter::EncodableMap();
 
   double x = rect.left / devicePixelRatio * 1.0f;
@@ -401,6 +402,8 @@ void TrayManagerPlugin::HandleMethodCall(
     std::unique_ptr<flutter::MethodResult<flutter::EncodableValue>> result) {
   if (method_call.method_name().compare("destroy") == 0) {
     Destroy(method_call, std::move(result));
+  } else if (method_call.method_name().compare("deactivateRecovery") == 0) {
+    DeactivateRecovery(method_call, std::move(result));
   } else if (method_call.method_name().compare("setIcon") == 0) {
     SetIcon(method_call, std::move(result));
   } else if (method_call.method_name().compare("setToolTip") == 0) {
