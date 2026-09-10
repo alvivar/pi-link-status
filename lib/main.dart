@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:window_manager/window_manager.dart';
 
 import 'idle_alert.dart';
@@ -285,12 +286,21 @@ class _AppState extends State<App> with WindowListener {
       // behind it for a frame.
       scaffoldBackgroundColor: graphiteSurface,
     ),
-    home: StatusView(
-      status: _poller.status,
-      lastAllIdle: _lastAllIdle,
-      muted: _alert.muted,
-      visible: _visible,
-      onTap: () => _setVisible(false),
+    home: CallbackShortcuts(
+      bindings: {
+        const SingleActivator(LogicalKeyboardKey.escape): () =>
+            _setVisible(false),
+      },
+      child: Focus(
+        autofocus: true,
+        child: StatusView(
+          status: _poller.status,
+          lastAllIdle: _lastAllIdle,
+          muted: _alert.muted,
+          visible: _visible,
+          onTap: () => _setVisible(false),
+        ),
+      ),
     ),
   );
 }
