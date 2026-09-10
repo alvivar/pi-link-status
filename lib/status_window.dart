@@ -19,7 +19,7 @@ const _hairline = Color(0xFF2A2A2F);
 const _foreground = Color(0xFFF2EFEA); // names
 const _meta = Color(0xFFACA9A4); // state, age, context, scope, history
 const _pathColour = Color(0xFF9C9994);
-const _hint = Color(0xFF8F8C88); // 'Click to hide'
+const _hint = Color(0xFF8F8C88); // 'Click or Esc to hide'
 const _thumb = Color(0xFF6B6B72);
 const _idle = Color(0xFF81C784);
 const _busy = Color(0xFF64B5F6);
@@ -393,7 +393,7 @@ class _StatusViewState extends State<StatusView> {
             style: _historyStyle,
           ),
         ),
-        const Text('Click to hide', style: _hintStyle),
+        const Text('Click or Esc to hide', style: _hintStyle),
       ],
     ),
   );

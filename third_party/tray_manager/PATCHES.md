@@ -134,11 +134,15 @@ most `kRetryBudget = 5` attempts `kRetryDelayMs = 2000` ms apart.
 
 There is no dialog, no new setting and no generic retry service.
 
-## Evidence for delta 2
+## Evidence for delta 2 (historical)
 
-Two headless suites under `windows/test/`, neither part of the plugin's
-`CMakeLists.txt`, so the app build is unchanged. Build and run commands are in
-each file header; artifacts belong outside the repository.
+The evidence below was produced by two headless suites under `windows/test/`,
+neither part of the plugin's `CMakeLists.txt`, so the app build was unchanged.
+**Those suites are no longer shipped: the test sources were removed from the
+repository at the user's request.** What follows records what they covered when
+they last ran green; it is a historical result, not something reproducible from
+this tree, and no fresh native validation is claimed. The production policy it
+describes is unchanged and still in force.
 
 `tray_icon_test.cpp` — the state machine against a fake shell: failed load,
 failed add versus failed modify, failed tooltip, successful retry with no new
@@ -157,18 +161,18 @@ disposition mapping including the end-to-end path with the shell refusing.
 
 ### What this evidence does not cover
 
-- **The final `MethodResult` call is source-only.** The tests check that a
+- **The final `MethodResult` call is source-only.** The tests checked that a
   failure resolves to an error *disposition* and error code; constructing a
   Flutter engine to observe the actual `result->Error(...)` is out of scope.
-- **No real Win32 shell call is made.** No test calls `Shell_NotifyIcon`,
-  `LoadImage`, `SetTimer` or `KillTimer`, and none touches Explorer or the
+- **No real Win32 shell call was made.** No test called `Shell_NotifyIcon`,
+  `LoadImage`, `SetTimer` or `KillTimer`, and none touched Explorer or the
   notification area. The mapping from a genuine shell refusal to these paths
   rests on the Win32 contract, not on an observed failure. The one real Win32
-  call the harness executes is `GetSystemMetrics(SM_CXSMICON)` inside
+  call the harness executed was `GetSystemMetrics(SM_CXSMICON)` inside
   `LoadIconFile`, a read-only metric query.
-- **`TaskbarCreated` is simulated by calling `Restore()`.** Actual
+- **`TaskbarCreated` was simulated by calling `Restore()`.** Actual
   `RegisterWindowMessage`/`WM_TIMER` message delivery through the window
-  procedure is not exercised.
+  procedure was not exercised.
 - **Untested by either suite:** `GetBounds`, `TrackPopupMenu`/the context menu,
   the `WM_COMMAND` and mouse-message paths, and the plugin's Flutter
   registration. `GetBounds` now reads the identifier from the adapter but is

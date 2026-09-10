@@ -55,7 +55,8 @@ directory next to it. There is no installer, autostart or settings UI.
 ## Using it
 
 - The app appears only as a tray icon. **Left-click** the icon to show or hide the panel;
-  **click inside the panel** to hide it again (it has no title bar or close button).
+  **click inside the panel**, or press **Esc while the panel has focus**, to hide it again
+  (it has no title bar or close button).
 - **Right-click** the icon for the menu: *Show*/*Hide*, *Mute alerts* (checkbox) and *Quit*.
   Hiding the panel never quits the app; *Quit* does.
 - When no hub answers, the panel says so and the icon turns grey. When you stop the hub
@@ -66,7 +67,6 @@ directory next to it. There is no installer, autostart or settings UI.
 
 ```powershell
 flutter analyze
-flutter test
 flutter build windows --debug
 ```
 
